@@ -12,6 +12,7 @@ namespace VoxelGame.Utils
             Vector2 topLeft = new Vector2(x * TileSize, y * TileSize);
             Vector2 bottomRight = new Vector2((x + 1) * TileSize, (y + 1) * TileSize);
 
+            return new TextureCoords
             {
                 TopLeft = topLeft,
                 BottomRight = bottomRight
