@@ -1,0 +1,20 @@
+﻿using VoxelGame.Utils;
+
+namespace VoxelGame.Blocks
+{
+    public class LogBlock : IBlock
+    {
+        public int ID => 4;
+
+        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 0);
+        public TextureCoords BottomTextureCoords => TopTextureCoords;
+        public TextureCoords SideTextureCoords => UVHelper.FromTileCoords(1, 0);
+
+        public bool IsSolid => true;
+
+        public string Name => "Logs";
+
+        public TextureCoords InventoryCoords => TopTextureCoords;
+        public bool GravityBlock => false;
+    }
+}
