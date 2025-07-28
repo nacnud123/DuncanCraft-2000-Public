@@ -23,5 +23,6 @@ namespace VoxelGame.Blocks
 
         public TextureCoords InventoryCoords => throw new NotImplementedException();
         public bool GravityBlock => false;
+        public BlockMaterial Material => BlockMaterial.None;
     }
 }

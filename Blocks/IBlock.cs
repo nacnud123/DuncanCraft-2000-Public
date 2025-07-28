@@ -7,6 +7,18 @@ using VoxelGame.Utils;
 
 namespace VoxelGame.Blocks
 {
+    public enum BlockMaterial
+    {
+        None,
+        Dirt,
+        Stone,
+        Wooden,
+        Leaves,
+        Wool,
+        Sand,
+        Glass
+    }
+
     public interface IBlock
     {
         public int ID { get; }
@@ -18,5 +30,6 @@ namespace VoxelGame.Blocks
         public bool IsSolid { get; }
         public bool GravityBlock { get; }
         public string Name { get; }
+        public BlockMaterial Material { get; }
     }
 }

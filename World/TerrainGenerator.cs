@@ -3,50 +3,66 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using NAudio.SoundFont;
 using VoxelGame.Utils;
 
 namespace VoxelGame.World
 {
-    public class TerrainGenerator
+    public class TerrainGenerator : IDisposable
     {
+        private readonly Noise _heightNoise;
+        private readonly Noise _caveNoise;
+        private readonly TreeGenerator _treeGenerator;
+
         private const int MinCaveDepth = 0;
         private const float CaveThreshold = 0.5f;
         private const float CaveScale = 0.1f;
         private const float TreeDensity = 0.02f;
 
-        private readonly FastNoiseLite noise = new FastNoiseLite();
+
+        public TerrainGenerator()
+        {
+            _heightNoise = new Noise();
+            _heightNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _heightNoise.SetFrequency(0.01f);
+
+            _caveNoise = new Noise();
+            _caveNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _caveNoise.SetFrequency(0.03f);
+
+            _treeGenerator = new TreeGenerator();
+        }
 
         public void init(int seed)
         {
-            noise.SetSeed(seed);
-            noise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
-            noise.SetFrequency(0.1f);
+            _heightNoise.SetSeed(seed);
+            _caveNoise.SetSeed(seed);
+            _treeGenerator.SetSeed(seed);
         }
 
-        public byte[,,] GenerateTerrain(byte[,,] blocksIn, ChunkPos position)
+        public void GenerateTerrain(Chunk chunk)
         {
-            int chunkWorldX = position.X * Constants.CHUNK_SIZE;
-            int chunkWorldZ = position.Z * Constants.CHUNK_SIZE;
-
-
             for (int x = 0; x < Constants.CHUNK_SIZE; x++)
             {
-                int worldX = chunkWorldX + x;
-
                 for (int z = 0; z < Constants.CHUNK_SIZE; z++)
                 {
-                    int worldZ = chunkWorldZ + z;
+                    var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
+                    var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
 
-                    int height = getNoise(worldX, worldZ, .1f, 64);
-                    height = Math.Max(1, Math.Min(height, Constants.CHUNK_HEIGHT - 1));
+                    var height = (int)(_heightNoise.GetNoise(worldX, worldZ) * 30 + 64);
+                    //var height = (int)64;
 
                     for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
                     {
-                        byte blockType;
-                        if (y < height - 5)
+                        byte blockType = BlockIDs.Air;
+
+                        if (y < height - 4)
                         {
-                            blockType = BlockIDs.Stone;
+                            // Check for caves
+                            var caveValue = _caveNoise.GetNoise(worldX, y * 2, worldZ);
+                            if (caveValue < 0.3f)
+                            {
+                                blockType = BlockIDs.Stone;
+                            }
                         }
                         else if (y < height - 1)
                         {
@@ -56,33 +72,20 @@ namespace VoxelGame.World
                         {
                             blockType = BlockIDs.Grass;
                         }
-                        else
-                        {
-                            blockType = BlockIDs.Air;
-                        }
 
-                        if (blockType != BlockIDs.Air && y < height - 5 && y >= MinCaveDepth)
-                        {
-                            float caveNoise = NoiseGenerator.CaveNoise(worldX * CaveScale, y * CaveScale, worldZ * CaveScale);
-
-                            if (caveNoise > CaveThreshold)
-                            {
-                                blockType = BlockIDs.Air;
-                            }
-                        }
-
-                        blocksIn[x, y, z] = blockType;
+                        chunk.Voxels[x, y, z] = blockType;
                     }
                 }
             }
 
-            return blocksIn;
+            _treeGenerator.GenerateTrees(chunk);
         }
 
-        private int getNoise(int x, int z, float scale, int max)
+        public void Dispose()
         {
-            return (int)Math.Floor((noise.GetNoise(x * scale, z * scale) + 1f) * (max / 2));
+            _heightNoise?.Dispose();
+            _caveNoise?.Dispose();
+            _treeGenerator?.Dispose();
         }
-
     }
 }

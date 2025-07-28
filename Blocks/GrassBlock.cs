@@ -17,5 +17,6 @@ namespace VoxelGame.Blocks
 
         public TextureCoords InventoryCoords => SideTextureCoords;
         public bool GravityBlock => false;
+        public BlockMaterial Material => BlockMaterial.Dirt;
     }
 }

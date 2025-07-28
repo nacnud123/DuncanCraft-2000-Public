@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using VoxelGame.Utils;
 
 namespace VoxelGame.PlayerScripts
 {
@@ -34,7 +35,7 @@ namespace VoxelGame.PlayerScripts
             return Matrix4.LookAt(Position, Position + Front, Up);
         }
 
-        public Matrix4 GetProjectionMatrix() => Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(fov), AspectRatio, .1f, 100f);
+        public Matrix4 GetProjectionMatrix() => Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(fov), AspectRatio, .1f, 1000f);
 
         public void ProcessKeyboard(int direction, float deltaTime)
         {

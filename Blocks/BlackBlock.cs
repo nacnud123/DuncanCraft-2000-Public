@@ -16,5 +16,6 @@ namespace VoxelGame.Blocks
 
         public TextureCoords InventoryCoords => TopTextureCoords;
         public bool GravityBlock => false;
+        public BlockMaterial Material => BlockMaterial.Wool;
     }
 }

@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>VoxelGame</id>
+    <version>1.0.0</version>
+    <authors>VoxelGame</authors>
+    <description>Package Description</description>
+    <repository type="git" commit="57d284a1dedefc43d49bf42f4b9fab6dce0cce70" />
+    <dependencies>
+      <group targetFramework="net8.0">
+        <dependency id="ImGui.NET" version="1.91.6.1" exclude="Build,Analyzers" />
+        <dependency id="OpenTK" version="4.9.4" exclude="Build,Analyzers" />
+        <dependency id="SFML.Net" version="2.6.1" exclude="Build,Analyzers" />
+        <dependency id="SkiaSharp" version="3.119.0" exclude="Build,Analyzers" />
+        <dependency id="StbImageSharp" version="2.30.15" exclude="Build,Analyzers" />
+        <dependency id="System.Drawing.Common" version="9.0.5" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Release\net8.0\win-x64\VoxelGame.runtimeconfig.json" target="lib\net8.0\VoxelGame.runtimeconfig.json" />
+    <file src="D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Release\net8.0\win-x64\VoxelGame.dll" target="lib\net8.0\VoxelGame.dll" />
+  </files>
+</package>

@@ -20,7 +20,7 @@ namespace VoxelGame.PlayerScripts
 
         public void KeyboardUpdate(KeyboardState keyboard, FrameEventArgs e)
         {
-            Vector3 front = Vector3.Normalize(new Vector3(player.Camera.Front.X, 0.0f, player.Camera.Front.Z));
+            Vector3 front = Vector3.Normalize(new Vector3(player._Camera.Front.X, 0.0f, player._Camera.Front.Z));
             Vector3 right = Vector3.Normalize(Vector3.Cross(front, Vector3.UnitY));
 
             if (keyboard.IsKeyDown(Keys.W))
@@ -122,7 +122,7 @@ namespace VoxelGame.PlayerScripts
                 float deltaY = lastMousePos.Y - mouse.Y;
                 lastMousePos = new Vector2(mouse.X, mouse.Y);
 
-                player.Camera.ProcessMouseMovement(deltaX, deltaY);
+                player._Camera.ProcessMouseMovement(deltaX, deltaY);
             }
         }
 
@@ -130,11 +130,11 @@ namespace VoxelGame.PlayerScripts
         {
             if (mouse.Button == MouseButton.Left)
             {
-                player.terrainModifier.BreakBlock(player.Camera.Position, player.Camera.Front);
+                player.terrainModifier.BreakBlock(player._Camera.Position, player._Camera.Front);
             }
             else if (mouse.Button == MouseButton.Right)
             {
-                player.terrainModifier.PlaceBlock(player.Camera.Position, player.Camera.Front, BlockIDs.Stone);
+                player.terrainModifier.PlaceBlock(player._Camera.Position, player._Camera.Front);
             }
         }
 

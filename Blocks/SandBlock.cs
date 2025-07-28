@@ -12,9 +12,10 @@ namespace VoxelGame.Blocks
         public TextureCoords SideTextureCoords => TopTextureCoords;
         public bool IsSolid => true;
 
-        public string Name => "Red";
+        public string Name => "Sand";
 
         public TextureCoords InventoryCoords => TopTextureCoords;
         public bool GravityBlock => true;
+        public BlockMaterial Material => BlockMaterial.Sand;
     }
 }

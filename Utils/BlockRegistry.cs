@@ -30,7 +30,7 @@ namespace VoxelGame.Utils
             blocks[12] = new BlackBlock();
             blocks[13] = new YellowFlowerBlock();
             blocks[14] = new SlabBlock();
-            //blocks[15] = new SandBlock();
+            blocks[15] = new SandBlock();
         }
 
         public static int GetBlocksSize()
@@ -61,6 +61,6 @@ namespace VoxelGame.Utils
         public const byte Black = 12;
         public const byte YellowFlower = 13;
         public const byte Slab = 14;
-        //public const byte Sand = 15;
+        public const byte Sand = 15;
     }
 }

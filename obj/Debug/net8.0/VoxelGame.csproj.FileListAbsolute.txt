@@ -1,8 +1,5 @@
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\hotbar.png
-D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\inGame.mp3
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\selector.png
-D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\temp_title.mp3
-D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\title.mp3
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\world.png
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Shaders\highlight_shader.frag
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Shaders\highlight_shader.vert
@@ -65,3 +62,9 @@ D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\obj\Debug\net8.0\refint\VoxelGame.
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\obj\Debug\net8.0\VoxelGame.pdb
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\obj\Debug\net8.0\VoxelGame.genruntimeconfig.cache
 D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\obj\Debug\net8.0\ref\VoxelGame.dll
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\DirtBreak.mp3
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\GlassBreak.mp3
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\LeavesBreak.mp3
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\StoneBreak.mp3
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\WoolBreak.mp3
+D:\Duncan\Documents\GitHub\PWD\OpenGL\C#\Barf\bin\Debug\net8.0\Resources\Audio\BlockBreaking\WoodenBreak.mp3

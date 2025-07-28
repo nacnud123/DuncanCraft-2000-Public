@@ -22,5 +22,6 @@ namespace VoxelGame.Blocks
 
         public TextureCoords InventoryCoords => UVHelper.FromTileCoords(4, 0);
         public bool GravityBlock => false;
+        public BlockMaterial Material => BlockMaterial.Wooden;
     }
 }

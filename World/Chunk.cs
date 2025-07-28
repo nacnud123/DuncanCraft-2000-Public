@@ -3,6 +3,7 @@ using OpenTK.Mathematics;
 using VoxelGame.Blocks;
 using VoxelGame.Utils;
 using System.Runtime.CompilerServices;
+using SkiaSharp;
 
 namespace VoxelGame.World
 {
@@ -23,7 +24,23 @@ namespace VoxelGame.World
         private bool disposed = false;
         public bool Modified = false;
 
+        Vector3 chunkWorldOffset = new Vector3();
 
+        Vector3[] faceNormals =
+        [
+            new Vector3(0, 0, 1), new Vector3(0, 0, -1), new Vector3(-1, 0, 0),
+            new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0)
+        ];
+
+        Vector3[] flowerNormals =
+        [
+            new Vector3(0.707f, 0, 0.707f),
+            new Vector3(-0.707f, 0, -0.707f),
+            new Vector3(-0.707f, 0, 0.707f),
+            new Vector3(0.707f, 0, -0.707f)
+        ];
+
+        private bool openGLMade = false;
 
         public Chunk(ChunkPos position)
         {
@@ -34,17 +51,32 @@ namespace VoxelGame.World
 
             generateTerrain();
 
-            VAO = GL.GenVertexArray();
-            VBO = GL.GenBuffer();
-            EBO = GL.GenBuffer();
+            makeOpenGLStuff();
+
+            chunkWorldOffset = new Vector3(
+                Position.X * Constants.CHUNK_SIZE,
+                0,
+                Position.Z * Constants.CHUNK_SIZE
+            );
+        }
+
+        private void makeOpenGLStuff()
+        {
+            if (!openGLMade)
+            {
+                VAO = GL.GenVertexArray();
+                VBO = GL.GenBuffer();
+                EBO = GL.GenBuffer();
+                openGLMade = true;
+            }
         }
 
         private void generateTerrain()
         {
-            Voxels = VoxelGame.init.TerrainGen.GenerateTerrain(Voxels, Position);
+            VoxelGame.init.TerrainGen.GenerateTerrain(this);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool isVoxelSolid(int x, int y, int z, ChunkManager chunkManager)
         {
             // Fast path for within chunk bounds
@@ -85,7 +117,7 @@ namespace VoxelGame.World
                 neighborZ = 0;
             }
 
-            var neighborChunk = chunkManager.GetChunk(neighborPos);
+            Chunk? neighborChunk = chunkManager.GetChunk(neighborPos);
             if (neighborChunk != null)
             {
                 return BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, y, neighborZ]).IsSolid;
@@ -96,29 +128,11 @@ namespace VoxelGame.World
 
         public void GenMesh(ChunkManager chunkManager)
         {
-           
+            if (disposed)
+                return;
+
             var newVertices = new List<Vertex>();
             var newIndices = new List<uint>();
-
-            Vector3 chunkWorldOffset = new Vector3(
-                Position.X * Constants.CHUNK_SIZE,
-                0,
-                Position.Z * Constants.CHUNK_SIZE
-            );
-
-            Vector3[] faceNormals = new Vector3[]
-            {
-                new Vector3(0, 0, 1), new Vector3(0, 0, -1), new Vector3(-1, 0, 0),
-                new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0)
-            };
-
-            Vector3[] flowerNormals = new Vector3[]
-            {
-                new Vector3(0.707f, 0, 0.707f),
-                new Vector3(-0.707f, 0, -0.707f),
-                new Vector3(-0.707f, 0, 0.707f),
-                new Vector3(0.707f, 0, -0.707f)
-            };
 
             uint vertexIndex = 0;
 
@@ -145,8 +159,6 @@ namespace VoxelGame.World
                         for (int face = 0; face < faceCount; face++)
                         {
                             if (Voxels[x, y, z] != BlockIDs.YellowFlower && !showFace[face]) continue;
-
-                            
 
                             Vector2[] texCoords = GetTextureCoords(Voxels[x, y, z], face);
                             Vector3 normal = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? flowerNormals[face] : faceNormals[face];
@@ -178,10 +190,24 @@ namespace VoxelGame.World
                             }
 
                             vertexIndex += 4;
-
                         }
                     }
                 }
+            }
+
+            // Properly dispose of old lists
+            if (Vertices != null)
+            {
+                Vertices.Clear();
+                Vertices.TrimExcess();
+                Vertices = null;
+            }
+
+            if (Indices != null)
+            {
+                Indices.Clear();
+                Indices.TrimExcess();
+                Indices = null;
             }
 
             Vertices = newVertices;
@@ -192,40 +218,73 @@ namespace VoxelGame.World
 
         public void UploadMesh()
         {
-            if (!MeshGenerated || Vertices.Count == 0) return;
+            if (disposed || !MeshGenerated || Vertices == null || Vertices.Count == 0)
+                return;
 
-            GL.BindVertexArray(VAO);
+            try
+            {
+                if (MeshUploaded && openGLMade)
+                {
+                    GL.DeleteVertexArray(VAO);
+                    GL.DeleteBuffer(VBO);
+                    GL.DeleteBuffer(EBO);
+                    MeshUploaded = false;
+                }
 
-            GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
-            GL.BufferData(BufferTarget.ArrayBuffer, Vertices.Count * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                         Vertices.ToArray(), BufferUsageHint.StaticDraw);
+                // Generate new buffers
+                if (!openGLMade)
+                {
+                    VAO = GL.GenVertexArray();
+                    VBO = GL.GenBuffer();
+                    EBO = GL.GenBuffer();
+                    openGLMade = true;
+                }
 
-            GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
-            GL.BufferData(BufferTarget.ElementArrayBuffer, Indices.Count * sizeof(uint),
-                         Indices.ToArray(), BufferUsageHint.StaticDraw);
+                GL.BindVertexArray(VAO);
 
-            // Position
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
-            GL.EnableVertexAttribArray(0);
+                // Upload vertex data
+                GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
+                GL.BufferData(BufferTarget.ArrayBuffer,
+                    Vertices.Count * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    Vertices.ToArray(), BufferUsageHint.StaticDraw);
 
-            // Normal
-            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                                  System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
-            GL.EnableVertexAttribArray(1);
+                // Upload index data
+                GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
+                GL.BufferData(BufferTarget.ElementArrayBuffer,
+                    Indices.Count * sizeof(uint),
+                    Indices.ToArray(), BufferUsageHint.StaticDraw);
 
-            // Texture coordinate
-            GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                                  System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
-            GL.EnableVertexAttribArray(2);
+                // Set up vertex attributes
+                GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false,
+                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
+                GL.EnableVertexAttribArray(0);
 
-            // Texture ID
-            GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false, System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                                  System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
-            GL.EnableVertexAttribArray(3);
+                GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false,
+                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
+                GL.EnableVertexAttribArray(1);
 
-            GL.BindVertexArray(0);
+                GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false,
+                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
+                GL.EnableVertexAttribArray(2);
 
-            MeshUploaded = true;
+                GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false,
+                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
+                GL.EnableVertexAttribArray(3);
+
+                GL.BindVertexArray(0);
+                GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+                GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
+
+                MeshUploaded = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error uploading mesh for chunk {Position}: {ex.Message}");
+                MeshUploaded = false;
+            }
         }
 
         private Vector2[] GetTextureCoords(byte voxelType, int faceIndex)
@@ -246,6 +305,7 @@ namespace VoxelGame.World
                     break;
             }
 
+            //TODO Look at
             return new Vector2[]
             {
                 coords.TopLeft,
@@ -257,7 +317,7 @@ namespace VoxelGame.World
 
         public void Render()
         {
-            if (!MeshUploaded || Indices.Count == 0) return;
+            if (!MeshUploaded || Indices.Count == 0 || disposed) return;
 
             GL.BindVertexArray(VAO);
             GL.DrawElements(PrimitiveType.Triangles, Indices.Count, DrawElementsType.UnsignedInt, 0);
@@ -266,16 +326,59 @@ namespace VoxelGame.World
 
         public void Dispose()
         {
-            if (!disposed)
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposed)
+                return;
+
+            if (disposing)
             {
-                if (MeshUploaded)
+                if (Vertices != null)
                 {
-                    GL.DeleteVertexArray(VAO);
-                    GL.DeleteBuffer(VBO);
-                    GL.DeleteBuffer(EBO);
+                    Vertices.Clear();
+                    Vertices.TrimExcess();
+                    Vertices = null;
                 }
-                disposed = true;
+
+                if (Indices != null)
+                {
+                    Indices.Clear();
+                    Indices.TrimExcess();
+                    Indices = null;
+                }
+
+                Voxels = null;
             }
+
+            // Clean up OpenGL resource
+            if (openGLMade)
+            {
+                try
+                {
+                    if (MeshUploaded)
+                    {
+                        GL.DeleteBuffer(VBO);
+                        GL.DeleteBuffer(EBO);
+                        GL.DeleteVertexArray(VAO);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error disposing GL resources for chunk at {Position}: {ex.Message}");
+                }
+                finally
+                {
+                    openGLMade = false;
+                    MeshUploaded = false;
+                    VAO = VBO = EBO = 0;
+                }
+            }
+
+            disposed = true;
         }
 
         public bool IsInBounds(Vector3i pos) =>
@@ -320,6 +423,7 @@ namespace VoxelGame.World
             }
             else
             {
+                //TODO look at
                 return new Vector3[6, 4]
                 {
                     // Front face
@@ -337,5 +441,41 @@ namespace VoxelGame.World
                 };
             }
         }
+
+        #region Frustum stuff
+        public Vector3 WorldPosition
+        {
+            get
+            {
+                return new Vector3(
+                    Position.X * Constants.CHUNK_SIZE,
+                    0,
+                    Position.Z * Constants.CHUNK_SIZE
+                );
+            }
+        }
+
+        public Vector3 BoundingBoxMin
+        {
+            get { return WorldPosition; }
+        }
+        public Vector3 BoundingBoxMax
+        {
+            get
+            {
+                return WorldPosition + new Vector3(
+                    Constants.CHUNK_SIZE,
+                    Constants.CHUNK_HEIGHT,
+                    Constants.CHUNK_SIZE
+                );
+            }
+        }
+
+        public bool IsInFrustum(Frustum frustum)
+        {
+            return frustum.IsBoxInFrustum(BoundingBoxMin, BoundingBoxMax);
+        }
+        #endregion
+
     }
 }

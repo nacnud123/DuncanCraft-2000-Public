@@ -19,6 +19,9 @@ namespace VoxelGame
     {
         public static VoxelGame init;
 
+        private int memoryCheckCounter = 0;
+        private long lastMemoryUsage = 0;
+
         private Shader? shaderProgram;
         private Texture? WorldTexture;
 
@@ -27,18 +30,23 @@ namespace VoxelGame
         private BlockHighlighter blockHighlighter;
         private TerrainGenerator terrainGen;
 
-        private TextRenderer _textRenderer;
         private ImGuiController _imGuiController;
 
         public TitleScreen _titleScreen;
+        private GameUI _gameUi;
         public PauseMenu _pauseMenu;
         public Inventory _inventory;
         public Hotbar _hotbar;
 
+        private bool DEVELOPMENT_MODE = true;
+
         private GameState _currentState;
         private string _currentWorldName;
 
-        private AudioManager audioManager;
+        private int frameCounter = 0;
+        private double fpsUpdateTimer = 0.0;
+
+        public AudioManager audioManager;
 
         private bool wireframeMode = false;
         private Matrix4 _projection;
@@ -71,7 +79,6 @@ namespace VoxelGame
             audioManager = new AudioManager();
             _titleScreen = new TitleScreen();
 
-
             _titleScreen.OnStartGame += StartGame;
             _titleScreen.OnTitleQuitGame += () => Close();
 
@@ -82,8 +89,6 @@ namespace VoxelGame
 
         private void StartGame(string worldName)
         {
-            NoiseGenerator.SetRandomSeed();
-
             _currentWorldName = worldName;
             _currentState = GameState.InGame;
 
@@ -107,7 +112,7 @@ namespace VoxelGame
             WorldTexture = Texture.LoadFromFile("Resources/world.png");
             WorldTexture.Use(TextureUnit.Texture0);
 
-            _textRenderer = new TextRenderer();
+            _gameUi = new GameUI();
             blockHighlighter = new BlockHighlighter();
 
             _pauseMenu = new PauseMenu();
@@ -131,6 +136,39 @@ namespace VoxelGame
         {
             base.OnUpdateFrame(args);
             _imGuiController.Update(this, (float)args.Time);
+
+            if (DEVELOPMENT_MODE)
+            {
+                frameCounter++;
+                fpsUpdateTimer += args.Time;
+                memoryCheckCounter++;
+
+                if (fpsUpdateTimer >= 1.0)
+                {
+                    long currentMemory = GC.GetTotalMemory(false) / 1024 / 1024; // MB
+                    long memoryDelta = currentMemory - lastMemoryUsage;
+
+                    Title = $"DuncanCraft 2000 - FPS: {frameCounter} | RAM: {currentMemory}MB ({memoryDelta:+#;-#;0}MB)";
+
+                    frameCounter = 0;
+                    fpsUpdateTimer = 0.0;
+                    lastMemoryUsage = currentMemory;
+                }
+
+
+                // Force GC every 10 seconds
+                if (memoryCheckCounter % 600 == 0)
+                {
+                    //long beforeGC = GC.GetTotalMemory(false);
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    //long afterGC = GC.GetTotalMemory(false);
+
+                    //Console.WriteLine($"GC: {beforeGC / 1024 / 1024}MB -> {afterGC / 1024 / 1024}MB");
+                    memoryCheckCounter = 0;
+                }
+            }
 
 
             if (_currentState == GameState.TitleScreen)
@@ -182,7 +220,7 @@ namespace VoxelGame
                 float deltaTime = (float)args.Time;
 
                 player.inputManager.KeyboardUpdate(KeyboardState, args);
-                chunkManager.UpdateChunks(player.Camera.Position);
+                chunkManager.UpdateChunks(player._Camera.Position);
                 chunkManager.UploadPendingMeshes();
 
                 if (_currentState == GameState.InGame)
@@ -246,8 +284,8 @@ namespace VoxelGame
                 shaderProgram?.Use();
 
                 Matrix4 model = Matrix4.Identity;
-                Matrix4 view = player.Camera.GetViewMatrix();
-                Matrix4 projection = player.Camera.GetProjectionMatrix();
+                Matrix4 view = player._Camera.GetViewMatrix();
+                Matrix4 projection = player._Camera.GetProjectionMatrix();
 
                 int modelLoc = GL.GetUniformLocation(shaderProgram.Handle, "model");
                 int viewLoc = GL.GetUniformLocation(shaderProgram.Handle, "view");
@@ -259,11 +297,11 @@ namespace VoxelGame
                 GL.UniformMatrix4(viewLoc, false, ref view);
                 GL.UniformMatrix4(projLoc, false, ref projection);
                 GL.Uniform3(lightPosLoc, new Vector3(0, 200, 0));
-                GL.Uniform3(viewPosLoc, player.Camera.Position);
+                GL.Uniform3(viewPosLoc, player._Camera.Position);
 
+                chunkManager.RenderChunks(player._Camera.Position, player._Camera.Front, player._Camera.Up, player._Camera.Fov, player._Camera.AspectRatio);
 
-                chunkManager.RenderChunks();
-
+                // Render overlays in correct order
                 if (_currentState == GameState.Pause)
                 {
                     _pauseMenu.Render();
@@ -273,19 +311,24 @@ namespace VoxelGame
                     _inventory.Render();
                 }
 
-                _textRenderer.RenderText($"World: {_currentWorldName} | {UIText} | {currentChunkPosition}", 50f, Size.Y - 100f, .5f, new Vector3(1.0f, 1.0f, 1.0f), _projection);
-                _textRenderer.RenderText("O", Size.X / 2, Size.Y / 2, .5f, new Vector3(1.0f, 1.0f, 1.0f), _projection);
+                // IMPORTANT: Render GameUI BEFORE ImGui controller render
+                if (_gameUi != null)
+                {
+                    _gameUi.Render($"World: {_currentWorldName} | {UIText} | {currentChunkPosition}");
+                }
 
                 if (_hotbar != null)
                 {
                     _hotbar.Render(_projection, Size);
                 }
 
+                // This should be last
                 _imGuiController.Render();
             }
 
             SwapBuffers();
         }
+
 
         protected override void OnResize(ResizeEventArgs e)
         {
@@ -298,7 +341,7 @@ namespace VoxelGame
 
             if (player != null)
             {
-                player.Camera.AspectRatio = e.Width / (float)e.Height;
+                player._Camera.AspectRatio = e.Width / (float)e.Height;
             }
         }
 
@@ -321,9 +364,11 @@ namespace VoxelGame
             base.OnUnload();
             chunkManager?.Dispose();
             shaderProgram?.Dispose();
-            _textRenderer?.Dispose();
+            _gameUi?.Dispose();
             blockHighlighter?.Dispose();
             _imGuiController?.Dispose();
+            audioManager?.Dispose();
+            terrainGen?.Dispose();
 
             WorldTexture?.Dispose();
         }

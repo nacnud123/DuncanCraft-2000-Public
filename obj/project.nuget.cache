@@ -1,19 +1,13 @@
 {
   "version": 2,
-  "dgSpecHash": "1R+5aHecFbk=",
+  "dgSpecHash": "MfxIffv/yOY=",
   "success": true,
-  "projectFilePath": "D:\\Users\\Duncan\\Documents\\GitHub\\DuncanCraft-2000-Public\\VoxelGame.csproj",
+  "projectFilePath": "D:\\Duncan\\Documents\\GitHub\\PWD\\OpenGL\\C#\\Barf\\VoxelGame.csproj",
   "expectedPackageFiles": [
+    "C:\\Users\\Duncan\\.nuget\\packages\\csfml\\2.6.1\\csfml.2.6.1.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\imgui.net\\1.91.6.1\\imgui.net.1.91.6.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.netcore.platforms\\3.1.0\\microsoft.netcore.platforms.3.1.0.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.win32.registry\\4.7.0\\microsoft.win32.registry.4.7.0.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.15\\microsoft.net.illink.tasks.8.0.15.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.win32.systemevents\\9.0.5\\microsoft.win32.systemevents.9.0.5.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio\\2.2.1\\naudio.2.2.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio.asio\\2.2.1\\naudio.asio.2.2.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio.core\\2.2.1\\naudio.core.2.2.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio.midi\\2.2.1\\naudio.midi.2.2.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio.wasapi\\2.2.1\\naudio.wasapi.2.2.1.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\naudio.winmm\\2.2.1\\naudio.winmm.2.2.1.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk\\4.9.4\\opentk.4.9.4.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk.audio.openal\\4.9.4\\opentk.audio.openal.4.9.4.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk.compute\\4.9.4\\opentk.compute.4.9.4.nupkg.sha512",
@@ -25,6 +19,11 @@
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk.windowing.common\\4.9.4\\opentk.windowing.common.4.9.4.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk.windowing.desktop\\4.9.4\\opentk.windowing.desktop.4.9.4.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\opentk.windowing.graphicslibraryframework\\4.9.4\\opentk.windowing.graphicslibraryframework.4.9.4.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\sfml.audio\\2.6.1\\sfml.audio.2.6.1.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\sfml.graphics\\2.6.1\\sfml.graphics.2.6.1.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\sfml.net\\2.6.1\\sfml.net.2.6.1.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\sfml.system\\2.6.1\\sfml.system.2.6.1.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\sfml.window\\2.6.1\\sfml.window.2.6.1.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\skiasharp\\3.119.0\\skiasharp.3.119.0.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\skiasharp.nativeassets.macos\\3.119.0\\skiasharp.nativeassets.macos.3.119.0.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\skiasharp.nativeassets.win32\\3.119.0\\skiasharp.nativeassets.win32.3.119.0.nupkg.sha512",
@@ -33,8 +32,9 @@
     "C:\\Users\\Duncan\\.nuget\\packages\\system.drawing.common\\9.0.5\\system.drawing.common.9.0.5.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\system.numerics.vectors\\4.5.0\\system.numerics.vectors.4.5.0.nupkg.sha512",
     "C:\\Users\\Duncan\\.nuget\\packages\\system.runtime.compilerservices.unsafe\\6.0.0\\system.runtime.compilerservices.unsafe.6.0.0.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\system.security.accesscontrol\\4.7.0\\system.security.accesscontrol.4.7.0.nupkg.sha512",
-    "C:\\Users\\Duncan\\.nuget\\packages\\system.security.principal.windows\\4.7.0\\system.security.principal.windows.4.7.0.nupkg.sha512"
+    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.15\\microsoft.aspnetcore.app.runtime.win-x64.8.0.15.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.15\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.15.nupkg.sha512",
+    "C:\\Users\\Duncan\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\8.0.15\\microsoft.netcore.app.runtime.win-x64.8.0.15.nupkg.sha512"
   ],
   "logs": []
 }

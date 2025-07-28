@@ -84,8 +84,6 @@ namespace VoxelGame.Saving
 
         public static bool Load(Chunk chunk)
         {
-            
-
             string saveFile = SaveLocation();
             saveFile += FileName(chunk.Position);
 
@@ -112,7 +110,6 @@ namespace VoxelGame.Saving
                 }
             }
             return true;
-
         }
 
 
