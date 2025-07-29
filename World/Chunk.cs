@@ -18,6 +18,8 @@ namespace VoxelGame.World
         public int VBO { get; private set; }
         public int EBO { get; private set; }
 
+        private int indexCount = 0;
+
         public bool MeshGenerated { get; set; }
         public bool MeshUploaded { get; set; }
 
@@ -46,11 +48,11 @@ namespace VoxelGame.World
         {
             Position = position;
             Voxels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
-            Vertices = new List<Vertex>();
-            Indices = new List<uint>();
+
+            Vertices = null;
+            Indices = null;
 
             generateTerrain();
-
             makeOpenGLStuff();
 
             chunkWorldOffset = new Vector3(
@@ -76,7 +78,7 @@ namespace VoxelGame.World
             VoxelGame.init.TerrainGen.GenerateTerrain(this);
         }
 
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool isVoxelSolid(int x, int y, int z, ChunkManager chunkManager)
         {
             // Fast path for within chunk bounds
@@ -131,8 +133,14 @@ namespace VoxelGame.World
             if (disposed)
                 return;
 
-            var newVertices = new List<Vertex>();
-            var newIndices = new List<uint>();
+            bool gotPooledVertex = false;
+            bool gotPooledIndex = false;
+
+            var newVertices = chunkManager.GetVertexList();
+            if (newVertices.Capacity > 0) gotPooledVertex = true;
+
+            var newIndices = chunkManager.GetIndexList();
+            if (newIndices.Capacity > 0) gotPooledIndex = true;
 
             uint vertexIndex = 0;
 
@@ -195,18 +203,15 @@ namespace VoxelGame.World
                 }
             }
 
-            // Properly dispose of old lists
+            // Return old lists to pool before replacing
             if (Vertices != null)
             {
-                Vertices.Clear();
-                Vertices.TrimExcess();
+                chunkManager.ReturnVertexList(Vertices);
                 Vertices = null;
             }
-
             if (Indices != null)
             {
-                Indices.Clear();
-                Indices.TrimExcess();
+                chunkManager.ReturnIndexList(Indices);
                 Indices = null;
             }
 
@@ -216,22 +221,24 @@ namespace VoxelGame.World
             MeshUploaded = false;
         }
 
-        public void UploadMesh()
+        public void UploadMesh(ChunkManager chunkManager)
         {
             if (disposed || !MeshGenerated || Vertices == null || Vertices.Count == 0)
                 return;
 
             try
             {
+                // Clean up old buffers
                 if (MeshUploaded && openGLMade)
                 {
                     GL.DeleteVertexArray(VAO);
                     GL.DeleteBuffer(VBO);
                     GL.DeleteBuffer(EBO);
                     MeshUploaded = false;
+                    openGLMade = false;
                 }
 
-                // Generate new buffers
+                // Make new buffers
                 if (!openGLMade)
                 {
                     VAO = GL.GenVertexArray();
@@ -242,33 +249,39 @@ namespace VoxelGame.World
 
                 GL.BindVertexArray(VAO);
 
-                // Upload vertex data
+                var vertexArray = Vertices.ToArray();
+                var indexArray = Indices.ToArray();
+
+                // Vertex data
                 GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
                 GL.BufferData(BufferTarget.ArrayBuffer,
-                    Vertices.Count * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    Vertices.ToArray(), BufferUsageHint.StaticDraw);
+                    vertexArray.Length * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    vertexArray, BufferUsageHint.StaticDraw);
 
-                // Upload index data
+                // Index data
                 GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
                 GL.BufferData(BufferTarget.ElementArrayBuffer,
-                    Indices.Count * sizeof(uint),
-                    Indices.ToArray(), BufferUsageHint.StaticDraw);
+                    indexArray.Length * sizeof(uint),
+                    indexArray, BufferUsageHint.StaticDraw);
 
-                // Set up vertex attributes
+                // Vertex attributes
                 GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false,
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
                 GL.EnableVertexAttribArray(0);
 
+                // Normal
                 GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false,
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
                 GL.EnableVertexAttribArray(1);
 
+                // Texture coordinates
                 GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false,
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
                 GL.EnableVertexAttribArray(2);
 
+                // Texture ID
                 GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false,
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
@@ -279,6 +292,20 @@ namespace VoxelGame.World
                 GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
 
                 MeshUploaded = true;
+
+                indexCount = Indices?.Count ?? 0;
+
+                // Clear the CPU lists
+                if (Vertices != null)
+                {
+                    chunkManager.ReturnVertexList(Vertices);
+                    Vertices = null;
+                }
+                if (Indices != null)
+                {
+                    chunkManager.ReturnIndexList(Indices);
+                    Indices = null;
+                }
             }
             catch (Exception ex)
             {
@@ -305,7 +332,6 @@ namespace VoxelGame.World
                     break;
             }
 
-            //TODO Look at
             return new Vector2[]
             {
                 coords.TopLeft,
@@ -317,10 +343,10 @@ namespace VoxelGame.World
 
         public void Render()
         {
-            if (!MeshUploaded || Indices.Count == 0 || disposed) return;
+            if (!MeshUploaded || indexCount == 0 || disposed) return;
 
             GL.BindVertexArray(VAO);
-            GL.DrawElements(PrimitiveType.Triangles, Indices.Count, DrawElementsType.UnsignedInt, 0);
+            GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, 0);
             GL.BindVertexArray(0);
         }
 
@@ -337,34 +363,30 @@ namespace VoxelGame.World
 
             if (disposing)
             {
-                if (Vertices != null)
+                // Return lists to pool
+                if (Vertices != null && VoxelGame.init?.chunkManager != null)
                 {
-                    Vertices.Clear();
-                    Vertices.TrimExcess();
+                    VoxelGame.init.chunkManager.ReturnVertexList(Vertices);
                     Vertices = null;
                 }
 
-                if (Indices != null)
+                if (Indices != null && VoxelGame.init?.chunkManager != null)
                 {
-                    Indices.Clear();
-                    Indices.TrimExcess();
+                    VoxelGame.init.chunkManager.ReturnIndexList(Indices);
                     Indices = null;
                 }
 
                 Voxels = null;
             }
 
-            // Clean up OpenGL resource
+            // Clean up OpenGL resources
             if (openGLMade)
             {
                 try
                 {
-                    if (MeshUploaded)
-                    {
-                        GL.DeleteBuffer(VBO);
-                        GL.DeleteBuffer(EBO);
-                        GL.DeleteVertexArray(VAO);
-                    }
+                    GL.DeleteBuffer(VBO);
+                    GL.DeleteBuffer(EBO);
+                    GL.DeleteVertexArray(VAO);
                 }
                 catch (Exception ex)
                 {
@@ -379,6 +401,8 @@ namespace VoxelGame.World
             }
 
             disposed = true;
+
+            indexCount = 0;
         }
 
         public bool IsInBounds(Vector3i pos) =>
@@ -423,7 +447,6 @@ namespace VoxelGame.World
             }
             else
             {
-                //TODO look at
                 return new Vector3[6, 4]
                 {
                     // Front face
@@ -476,6 +499,5 @@ namespace VoxelGame.World
             return frustum.IsBoxInFrustum(BoundingBoxMin, BoundingBoxMax);
         }
         #endregion
-
     }
 }

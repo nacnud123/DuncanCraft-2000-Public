@@ -21,11 +21,13 @@ namespace VoxelGame
 
         private int memoryCheckCounter = 0;
         private long lastMemoryUsage = 0;
+        private const int MEMORY_CHECK_INTERVAL = 3600;
+        private const int FORCE_GC_INTERVAL = 18000;
 
         private Shader? shaderProgram;
         private Texture? WorldTexture;
 
-        private ChunkManager chunkManager;
+        public ChunkManager chunkManager;
         private Player player;
         private BlockHighlighter blockHighlighter;
         private TerrainGenerator terrainGen;
@@ -122,8 +124,7 @@ namespace VoxelGame
             _pauseMenu.OnPauseQuitGame += () => CloseGame();
             _pauseMenu.OnResumeGame += () => ResumeGame();
 
-
-            SetupHotbarBlocks();
+            setupHotbarBlocks();
 
             player = new Player(chunkManager, Size);
 
@@ -155,21 +156,24 @@ namespace VoxelGame
                     lastMemoryUsage = currentMemory;
                 }
 
-
-                // Force GC every 10 seconds
-                if (memoryCheckCounter % 600 == 0)
+                // Garbage collection
+                if (memoryCheckCounter % MEMORY_CHECK_INTERVAL == 0)
                 {
-                    //long beforeGC = GC.GetTotalMemory(false);
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                    GC.Collect();
-                    //long afterGC = GC.GetTotalMemory(false);
+                    long currentMemory = GC.GetTotalMemory(false);
 
-                    //Console.WriteLine($"GC: {beforeGC / 1024 / 1024}MB -> {afterGC / 1024 / 1024}MB");
+                    if (currentMemory > 500 * 1024 * 1024 ||
+                        memoryCheckCounter % FORCE_GC_INTERVAL == 0)
+                    {
+                        GC.Collect(0, GCCollectionMode.Optimized);
+                        Console.WriteLine($"Forced GC: {currentMemory / 1024 / 1024}MB -> {GC.GetTotalMemory(false) / 1024 / 1024}MB");
+                    }
+                }
+
+                if (memoryCheckCounter >= FORCE_GC_INTERVAL)
+                {
                     memoryCheckCounter = 0;
                 }
             }
-
 
             if (_currentState == GameState.TitleScreen)
             {
@@ -301,7 +305,6 @@ namespace VoxelGame
 
                 chunkManager.RenderChunks(player._Camera.Position, player._Camera.Front, player._Camera.Up, player._Camera.Fov, player._Camera.AspectRatio);
 
-                // Render overlays in correct order
                 if (_currentState == GameState.Pause)
                 {
                     _pauseMenu.Render();
@@ -311,7 +314,6 @@ namespace VoxelGame
                     _inventory.Render();
                 }
 
-                // IMPORTANT: Render GameUI BEFORE ImGui controller render
                 if (_gameUi != null)
                 {
                     _gameUi.Render($"World: {_currentWorldName} | {UIText} | {currentChunkPosition}");
@@ -322,13 +324,11 @@ namespace VoxelGame
                     _hotbar.Render(_projection, Size);
                 }
 
-                // This should be last
                 _imGuiController.Render();
             }
 
             SwapBuffers();
         }
-
 
         protected override void OnResize(ResizeEventArgs e)
         {
@@ -345,7 +345,7 @@ namespace VoxelGame
             }
         }
 
-        private void SetupHotbarBlocks()
+        private void setupHotbarBlocks()
         {
             _hotbar.SetBlockInSlot(0, BlockRegistry.GetBlock(BlockIDs.Stone));
             _hotbar.SetBlockInSlot(1, BlockRegistry.GetBlock(BlockIDs.Dirt));
@@ -362,6 +362,8 @@ namespace VoxelGame
         protected override void OnUnload()
         {
             base.OnUnload();
+
+            // Dispose in correct order - chunk manager first to save chunks
             chunkManager?.Dispose();
             shaderProgram?.Dispose();
             _gameUi?.Dispose();
@@ -369,17 +371,19 @@ namespace VoxelGame
             _imGuiController?.Dispose();
             audioManager?.Dispose();
             terrainGen?.Dispose();
-
             WorldTexture?.Dispose();
         }
 
         private void CloseGame()
         {
-            foreach (var activeChunks in chunkManager._chunks)
+            if (chunkManager?._chunks != null)
             {
-                if (activeChunks.Value.Modified)
+                foreach (var activeChunks in chunkManager._chunks)
                 {
-                    Serialization.SaveChunk(activeChunks.Value);
+                    if (activeChunks.Value.Modified)
+                    {
+                        Serialization.SaveChunk(activeChunks.Value);
+                    }
                 }
             }
 

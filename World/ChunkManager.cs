@@ -16,12 +16,63 @@ public class ChunkManager : IDisposable
     private readonly HashSet<ChunkPos> chunksNeedingMeshUpdate = new();
     private readonly object meshUpdateLock = new object();
 
+    private readonly ConcurrentQueue<List<Vertex>> vertexListPool = new();
+    private readonly ConcurrentQueue<List<uint>> indexListPool = new();
+    private const int MAX_POOLED_OBJECTS = 50;
+
     public Frustum frustum;
 
     public ChunkManager()
     {
         frustum = new Frustum();
+
+        for (int i = 0; i < 20; i++)
+        {
+            vertexListPool.Enqueue(new List<Vertex>());
+            indexListPool.Enqueue(new List<uint>());
+        }
+
         meshGenerationTask = Task.Run(meshGenWorker, cancellationTokenSource.Token);
+    }
+
+    public List<Vertex> GetVertexList()
+    {
+        if (vertexListPool.TryDequeue(out var list))
+        {
+            list.Clear();
+            return list;
+        }
+        return new List<Vertex>();
+    }
+
+    public List<uint> GetIndexList()
+    {
+        if (indexListPool.TryDequeue(out var list))
+        {
+            list.Clear();
+            return list;
+        }
+        return new List<uint>();
+    }
+
+    public void ReturnVertexList(List<Vertex> list)
+    {
+        if (list != null && vertexListPool.Count < MAX_POOLED_OBJECTS)
+        {
+            list.Clear();
+            list.TrimExcess();
+            vertexListPool.Enqueue(list);
+        }
+    }
+
+    public void ReturnIndexList(List<uint> list)
+    {
+        if (list != null && indexListPool.Count < MAX_POOLED_OBJECTS)
+        {
+            list.Clear();
+            list.TrimExcess();
+            indexListPool.Enqueue(list);
+        }
     }
 
     public void UpdateChunks(Vector3 playerPos)
@@ -30,6 +81,8 @@ public class ChunkManager : IDisposable
             (int)MathF.Floor(playerPos.X / Constants.CHUNK_SIZE),
             (int)MathF.Floor(playerPos.Z / Constants.CHUNK_SIZE)
         );
+
+        VoxelGame.VoxelGame.init.currentChunkPosition = new OpenTK.Mathematics.Vector2i(playerChunk.X, playerChunk.Z);
 
         var newChunks = new List<ChunkPos>();
         for (int x = playerChunk.X - Constants.RENDER_DISTANCE; x <= playerChunk.X + Constants.RENDER_DISTANCE; x++)
@@ -43,7 +96,7 @@ public class ChunkManager : IDisposable
                     _chunks[pos] = new Chunk(pos);
                     newChunks.Add(pos);
                     Serialization.Load(_chunks[pos]);
-                    EnqueueMeshGeneration(pos);
+                    enqueueMeshGeneration(pos);
                 }
             }
         }
@@ -60,7 +113,7 @@ public class ChunkManager : IDisposable
                 if (_chunks.TryGetValue(chunkPos, out var chunk))
                 {
                     chunk.MeshGenerated = false;
-                    EnqueueMeshGeneration(chunkPos);
+                    enqueueMeshGeneration(chunkPos);
                 }
             }
             chunksNeedingMeshUpdate.Clear();
@@ -70,10 +123,11 @@ public class ChunkManager : IDisposable
         {
             if (!kvp.Value.MeshGenerated)
             {
-                EnqueueMeshGeneration(kvp.Key);
+                enqueueMeshGeneration(kvp.Key);
             }
         }
 
+        // IProcess all chunks to remove at once
         var chunksToRemove = new List<ChunkPos>();
         foreach (var kvp in _chunks)
         {
@@ -86,10 +140,9 @@ public class ChunkManager : IDisposable
             }
         }
 
-        int batchSize = Math.Min(10, chunksToRemove.Count);
-        for (int i = 0; i < batchSize; i++)
+        // Remove chunks in batches
+        foreach (var pos in chunksToRemove)
         {
-            var pos = chunksToRemove[i];
             if (_chunks.TryRemove(pos, out var chunk))
             {
                 if (chunk.Modified)
@@ -104,14 +157,14 @@ public class ChunkManager : IDisposable
             }
         }
 
-        // Force garbage collection
-        if (batchSize > 0)
+        // If there are a lot of chunks to remove, then force garbage collection
+        if (chunksToRemove.Count > 5)
         {
             GC.Collect(0, GCCollectionMode.Optimized);
         }
     }
 
-    private void EnqueueMeshGeneration(ChunkPos pos)
+    private void enqueueMeshGeneration(ChunkPos pos)
     {
         lock (queueLock)
         {
@@ -163,7 +216,7 @@ public class ChunkManager : IDisposable
         {
             if (chunk.MeshGenerated && !chunk.MeshUploaded)
             {
-                chunk.UploadMesh();
+                chunk.UploadMesh(this);
             }
         }
     }
@@ -247,9 +300,17 @@ public class ChunkManager : IDisposable
         lock (queueLock)
         {
             queuedChunks.Clear();
-
-            // Clear the queue
             while (meshGenerationQueue.TryDequeue(out _)) { }
+        }
+
+        // Clear object pools
+        while (vertexListPool.TryDequeue(out var vertexList))
+        {
+            vertexList.Clear();
+        }
+        while (indexListPool.TryDequeue(out var indexList))
+        {
+            indexList.Clear();
         }
 
         try
@@ -261,7 +322,7 @@ public class ChunkManager : IDisposable
             Console.WriteLine($"Error disposing cancellation token: {ex.Message}");
         }
 
-        // Force garbage collection
+        // Force garbage collection one final time
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
