@@ -28,7 +28,7 @@ namespace VoxelGame.UI
 
         public Inventory(Texture blockAtlasTexture)
         {
-            selectableBlocks = BlockRegistry.GetAllBocks.Where(kvp => kvp.Key != BlockIDs.Air).ToList();
+            selectableBlocks = BlockRegistry.GetAllBocks.Where(kvp => kvp.Key != BlockIDs.Air && kvp.Key != BlockIDs.Bedrock).ToList();
             _blockAtlasTexture = blockAtlasTexture;
             loadTextures();
         }

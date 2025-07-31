@@ -11,8 +11,8 @@ namespace VoxelGame.PlayerScripts
         private Shader highlightShader;
         private Vector3i? highlightedBlock;
         private const float REACH_DISTANCE = 5.0f;
-        private readonly float[] wireframeCube = new float[]
-        {
+        private readonly float[] wireframeCube =
+        [
             0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
             1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 1.0f,
             1.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,
@@ -25,7 +25,7 @@ namespace VoxelGame.PlayerScripts
             1.0f, 0.0f, 0.0f,  1.0f, 1.0f, 0.0f,
             1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f,
             0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 1.0f,
-        };
+        ];
 
         public BlockHighlighter()
         {
@@ -119,18 +119,20 @@ namespace VoxelGame.PlayerScripts
             {
                 return;
             }
-            bool depthTestEnabled = GL.IsEnabled(EnableCap.DepthTest);
+
             bool blendEnabled = GL.IsEnabled(EnableCap.Blend);
 
-            GL.Disable(EnableCap.DepthTest);
             GL.Enable(EnableCap.Blend);
             GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+
+            GL.DepthFunc(DepthFunction.Lequal);
+
             GL.LineWidth(3.0f);
 
             highlightShader.Use();
 
             Vector3 blockPos = new Vector3(highlightedBlock.Value.X, highlightedBlock.Value.Y, highlightedBlock.Value.Z);
-            Matrix4 model = Matrix4.CreateScale(1.01f) * Matrix4.CreateTranslation(blockPos);
+            Matrix4 model = Matrix4.CreateScale(1.002f) * Matrix4.CreateTranslation(blockPos - new Vector3(0.001f));
 
             int modelLoc = GL.GetUniformLocation(highlightShader.Handle, "model");
             int viewLoc = GL.GetUniformLocation(highlightShader.Handle, "view");
@@ -140,7 +142,7 @@ namespace VoxelGame.PlayerScripts
             GL.UniformMatrix4(modelLoc, false, ref model);
             GL.UniformMatrix4(viewLoc, false, ref view);
             GL.UniformMatrix4(projLoc, false, ref projection);
-            GL.Uniform3(colorLoc, new Vector3(1.0f, 0.0f, 0.0f));
+            GL.Uniform3(colorLoc, new Vector3(0.8f, 0.8f, 0.8f));
 
             GL.BindVertexArray(VAO);
             GL.DrawArrays(PrimitiveType.Lines, 0, wireframeCube.Length / 3);
@@ -148,8 +150,8 @@ namespace VoxelGame.PlayerScripts
             GL.BindVertexArray(0);
             GL.LineWidth(1.0f);
 
+            GL.DepthFunc(DepthFunction.Less);
             if (!blendEnabled) GL.Disable(EnableCap.Blend);
-            if (depthTestEnabled) GL.Enable(EnableCap.DepthTest);
         }
 
         public Vector3i? GetHighlightedBlock()

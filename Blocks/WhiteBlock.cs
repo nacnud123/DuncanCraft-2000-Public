@@ -9,7 +9,7 @@ namespace VoxelGame.Blocks
 {
     public class WhiteBlock : IBlock
     {
-        public int ID => 8;
+        public int ID => 9;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(3, 0);
 

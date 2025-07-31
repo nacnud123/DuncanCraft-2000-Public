@@ -9,7 +9,7 @@ namespace VoxelGame.Blocks
 {
     public class SlabBlock : IBlock
     {
-        public int ID => 14;
+        public int ID => 15;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 2);
 

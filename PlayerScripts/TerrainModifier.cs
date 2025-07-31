@@ -208,12 +208,17 @@ namespace VoxelGame.PlayerScripts
             if (!chunk.IsInBounds(localPos))
                 return false;
 
+            byte oldBlock = chunk.Voxels[localPos.X, localPos.Y, localPos.Z];
+            if (oldBlock == BlockIDs.Bedrock)
+            {
+                return false;
+            }
+
             if (breakingBlock)
             {
                 VoxelGame.init.audioManager.PlayBlockBreakSound(BlockRegistry.GetBlock(chunk.Voxels[localPos.X, localPos.Y, localPos.Z]).Material);
             }
 
-            byte oldBlock = chunk.Voxels[localPos.X, localPos.Y, localPos.Z];
             chunk.Voxels[localPos.X, localPos.Y, localPos.Z] = blockType;
 
             // Get all chunks that need updating

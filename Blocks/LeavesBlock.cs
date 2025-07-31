@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     public class LeavesBlock : IBlock
     {
-        public int ID => 7;
+        public int ID => 8;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(1, 2);
 

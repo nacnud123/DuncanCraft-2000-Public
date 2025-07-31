@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     public class LogBlock : IBlock
     {
-        public int ID => 4;
+        public int ID => 5;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 0);
         public TextureCoords BottomTextureCoords => TopTextureCoords;

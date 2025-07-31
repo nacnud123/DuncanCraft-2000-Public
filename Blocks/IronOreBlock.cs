@@ -7,22 +7,21 @@ using VoxelGame.Utils;
 
 namespace VoxelGame.Blocks
 {
-    public class GlassBlock : IBlock
+    public class IronOreBlock : IBlock
     {
-        public int ID => 6;
+        public int ID => 18;
 
-        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 1);
+        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 3);
 
         public TextureCoords BottomTextureCoords => TopTextureCoords;
-
         public TextureCoords SideTextureCoords => TopTextureCoords;
 
-        public bool IsSolid => false;
+        public bool IsSolid => true;
 
-        public string Name => "Glass";
+        public string Name => "Iron Ore";
 
         public TextureCoords InventoryCoords => TopTextureCoords;
         public bool GravityBlock => false;
-        public BlockMaterial Material => BlockMaterial.Glass;
+        public BlockMaterial Material => BlockMaterial.Stone;
     }
 }

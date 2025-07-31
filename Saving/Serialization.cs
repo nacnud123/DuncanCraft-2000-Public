@@ -53,14 +53,35 @@ namespace VoxelGame.Saving
             path += seedFile();
 
             FileStream fs = File.Create(path);
-
             StreamWriter writer = new StreamWriter(fs);
 
-            seed = (int)DateTime.Now.Ticks & 0x7FFFFFFF;
+            // Generate seed based on world name for consistency
+            seed = GenerateSeedFromWorldName(worldName);
 
             writer.WriteLine(seed);
             writer.Close();
             fs.Close();
+            return seed;
+        }
+
+        // Generate a consistent seed based on the world name
+        private static int GenerateSeedFromWorldName(string worldName)
+        {
+            // Use the world name to generate a consistent hash-based seed
+            int hash = worldName.GetHashCode();
+
+            // Combine with current time to add some randomness while keeping consistency per name
+            // But only use the date part, not the exact time, so same name = same seed
+            var today = DateTime.Today;
+            int dateHash = today.GetHashCode();
+
+            // XOR the hashes together and ensure positive value
+            int seed = Math.Abs(hash ^ dateHash);
+
+            // If you want purely deterministic seeds based only on world name (recommended):
+            // Remove the dateHash and just use:
+            // int seed = Math.Abs(worldName.GetHashCode());
+
             return seed;
         }
 
@@ -97,7 +118,6 @@ namespace VoxelGame.Saving
                 save = (Save)serializer.Deserialize(stream);
             }
 
-
             var temp = save.To3DArray();
             for (int x = 0; x < Constants.CHUNK_SIZE; x++)
             {
@@ -111,8 +131,5 @@ namespace VoxelGame.Saving
             }
             return true;
         }
-
-
-
     }
 }

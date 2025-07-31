@@ -223,6 +223,8 @@ namespace VoxelGame
 
                 float deltaTime = (float)args.Time;
 
+                blockHighlighter.Update(player._Camera, chunkManager);
+
                 player.inputManager.KeyboardUpdate(KeyboardState, args);
                 chunkManager.UpdateChunks(player._Camera.Position);
                 chunkManager.UploadPendingMeshes();
@@ -294,16 +296,18 @@ namespace VoxelGame
                 int modelLoc = GL.GetUniformLocation(shaderProgram.Handle, "model");
                 int viewLoc = GL.GetUniformLocation(shaderProgram.Handle, "view");
                 int projLoc = GL.GetUniformLocation(shaderProgram.Handle, "projection");
-                int lightPosLoc = GL.GetUniformLocation(shaderProgram.Handle, "lightPos");
+                int lightDirLoc = GL.GetUniformLocation(shaderProgram.Handle, "lightDir");
                 int viewPosLoc = GL.GetUniformLocation(shaderProgram.Handle, "viewPos");
 
                 GL.UniformMatrix4(modelLoc, false, ref model);
                 GL.UniformMatrix4(viewLoc, false, ref view);
                 GL.UniformMatrix4(projLoc, false, ref projection);
-                GL.Uniform3(lightPosLoc, new Vector3(0, 200, 0));
+                GL.Uniform3(lightDirLoc, new Vector3(0.2f, -1.0f, 0.3f));
                 GL.Uniform3(viewPosLoc, player._Camera.Position);
 
                 chunkManager.RenderChunks(player._Camera.Position, player._Camera.Front, player._Camera.Up, player._Camera.Fov, player._Camera.AspectRatio);
+
+                blockHighlighter.Render(view, projection);
 
                 if (_currentState == GameState.Pause)
                 {

@@ -26,6 +26,8 @@ namespace VoxelGame.World
         private bool disposed = false;
         public bool Modified = false;
 
+        public byte biome;
+
         Vector3 chunkWorldOffset = new Vector3();
 
         Vector3[] faceNormals =
@@ -176,7 +178,9 @@ namespace VoxelGame.World
                                 Vector3 localPosition = new Vector3(x, y, z) + blockFace[face, v];
                                 Vector3 worldPosition = localPosition + chunkWorldOffset;
 
-                                Vertex vertex = new Vertex(worldPosition, normal, texCoords[v], (float)Voxels[x, y, z]);
+                                float lightValue = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? 1.0f : GetFaceLightValue(x, y, z, face, chunkManager);
+
+                                Vertex vertex = new Vertex(worldPosition, normal, texCoords[v], (float)Voxels[x, y, z], lightValue);
                                 newVertices.Add(vertex);
                             }
 
@@ -286,6 +290,11 @@ namespace VoxelGame.World
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
                 GL.EnableVertexAttribArray(3);
+
+                GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false,
+                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.LightValue)));
+                GL.EnableVertexAttribArray(4);
 
                 GL.BindVertexArray(0);
                 GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
@@ -464,6 +473,81 @@ namespace VoxelGame.World
                 };
             }
         }
+
+        #region Lighting
+        private float GetFaceLightValue(int x, int y, int z, int face, ChunkManager chunkManager)
+        {
+            float baseLighting = .8f;
+
+            int checkX = x, checkY = y, checkZ = z;
+
+            switch (face)
+            {
+                case 0: checkZ += 1; break; // Front face
+                case 1: checkZ -= 1; break; // Back face
+                case 2: checkX -= 1; break; // Left face
+                case 3: checkX += 1; break; // Right face
+                case 4: break;              // Top face
+                case 5: checkY -= 1; break; // Bottom face
+            }
+            return CanSeeSunFast(checkX, checkY, checkZ, chunkManager) ? baseLighting : .4f;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CanSeeSunFast(int x, int y, int z, ChunkManager manager)
+        {
+
+            for (int checkY = y + 1; checkY < Constants.CHUNK_HEIGHT; checkY++)
+            {
+                if( x >= 0 && x < Constants.CHUNK_SIZE && z >= 0 && z < Constants.CHUNK_SIZE)
+                {
+                    if (BlockRegistry.GetBlock(Voxels[x, checkY, z]).IsSolid)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    ChunkPos neighborPos = Position;
+                    int neighborX = x;
+                    int neighborZ = z;
+
+                    if (x < 0)
+                    {
+                        neighborPos = new ChunkPos(Position.X - 1, Position.Z);
+                        neighborX = Constants.CHUNK_SIZE - 1;
+                    }
+                    else if (x >= Constants.CHUNK_SIZE)
+                    {
+                        neighborPos = new ChunkPos(Position.X + 1, Position.Z);
+                        neighborX = 0;
+                    }
+
+                    if (z < 0)
+                    {
+                        neighborPos = new ChunkPos(neighborPos.X, Position.Z - 1);
+                        neighborZ = Constants.CHUNK_SIZE - 1;
+                    }
+                    else if (z >= Constants.CHUNK_SIZE)
+                    {
+                        neighborPos = new ChunkPos(neighborPos.X, Position.Z + 1);
+                        neighborZ = 0;
+                    }
+
+                    Chunk? neighborChunk = manager.GetChunk(neighborPos);
+                    if (neighborChunk != null)
+                    {
+                        if (BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, checkY, neighborZ]).IsSolid)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+        #endregion
 
         #region Frustum stuff
         public Vector3 WorldPosition

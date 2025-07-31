@@ -8,10 +8,11 @@ public class ChunkManager : IDisposable
 {
     public readonly ConcurrentDictionary<ChunkPos, Chunk> _chunks = new();
     private readonly ConcurrentQueue<ChunkPos> meshGenerationQueue = new();
+    private readonly ConcurrentQueue<ChunkPos> priorityMeshQueue = new();
     private readonly HashSet<ChunkPos> queuedChunks = new();
     private readonly object queueLock = new object();
     private readonly CancellationTokenSource cancellationTokenSource = new();
-    private readonly Task meshGenerationTask;
+    private readonly Task[] meshGenerationTasks; // Multiple worker threads
 
     private readonly HashSet<ChunkPos> chunksNeedingMeshUpdate = new();
     private readonly object meshUpdateLock = new object();
@@ -19,6 +20,7 @@ public class ChunkManager : IDisposable
     private readonly ConcurrentQueue<List<Vertex>> vertexListPool = new();
     private readonly ConcurrentQueue<List<uint>> indexListPool = new();
     private const int MAX_POOLED_OBJECTS = 50;
+    private const int WORKER_THREAD_COUNT = 2;
 
     public Frustum frustum;
 
@@ -32,7 +34,11 @@ public class ChunkManager : IDisposable
             indexListPool.Enqueue(new List<uint>());
         }
 
-        meshGenerationTask = Task.Run(meshGenWorker, cancellationTokenSource.Token);
+        meshGenerationTasks = new Task[WORKER_THREAD_COUNT];
+        for (int i = 0; i < WORKER_THREAD_COUNT; i++)
+        {
+            meshGenerationTasks[i] = Task.Run(meshGenWorker, cancellationTokenSource.Token);
+        }
     }
 
     public List<Vertex> GetVertexList()
@@ -106,6 +112,7 @@ public class ChunkManager : IDisposable
             ReGenChunkNeighbors(newChunkPos);
         }
 
+        // Process priority updates first
         lock (meshUpdateLock)
         {
             foreach (var chunkPos in chunksNeedingMeshUpdate)
@@ -113,7 +120,8 @@ public class ChunkManager : IDisposable
                 if (_chunks.TryGetValue(chunkPos, out var chunk))
                 {
                     chunk.MeshGenerated = false;
-                    enqueueMeshGeneration(chunkPos);
+                  
+                    enqueuePriorityMeshGeneration(chunkPos);
                 }
             }
             chunksNeedingMeshUpdate.Clear();
@@ -127,7 +135,7 @@ public class ChunkManager : IDisposable
             }
         }
 
-        // IProcess all chunks to remove at once
+        // Process all chunks to remove at once
         var chunksToRemove = new List<ChunkPos>();
         foreach (var kvp in _chunks)
         {
@@ -176,6 +184,18 @@ public class ChunkManager : IDisposable
         }
     }
 
+    private void enqueuePriorityMeshGeneration(ChunkPos pos)
+    {
+        lock (queueLock)
+        {
+            if (!queuedChunks.Contains(pos))
+            {
+                queuedChunks.Add(pos);
+                priorityMeshQueue.Enqueue(pos);
+            }
+        }
+    }
+
     public void MarkChunksForUpdate(IEnumerable<ChunkPos> chunkPositions)
     {
         lock (meshUpdateLock)
@@ -191,7 +211,21 @@ public class ChunkManager : IDisposable
     {
         while (!cancellationTokenSource.Token.IsCancellationRequested)
         {
-            if (meshGenerationQueue.TryDequeue(out ChunkPos pos))
+            ChunkPos pos;
+            bool foundWork = false;
+
+            // Check priority queue first
+            if (priorityMeshQueue.TryDequeue(out pos))
+            {
+                foundWork = true;
+            }
+            // Then check regular queue
+            else if (meshGenerationQueue.TryDequeue(out pos))
+            {
+                foundWork = true;
+            }
+
+            if (foundWork)
             {
                 lock (queueLock)
                 {
@@ -205,18 +239,26 @@ public class ChunkManager : IDisposable
             }
             else
             {
-                await Task.Delay(10, cancellationTokenSource.Token);
+                await Task.Delay(5, cancellationTokenSource.Token); // Reduced delay for faster response
             }
         }
     }
 
     public void UploadPendingMeshes()
     {
+        // Process uploads in batches to avoid frame drops
+        int uploadsThisFrame = 0;
+        const int maxUploadsPerFrame = 3;
+
         foreach (var chunk in _chunks.Values)
         {
             if (chunk.MeshGenerated && !chunk.MeshUploaded)
             {
                 chunk.UploadMesh(this);
+                uploadsThisFrame++;
+
+                if (uploadsThisFrame >= maxUploadsPerFrame)
+                    break;
             }
         }
     }
@@ -267,18 +309,18 @@ public class ChunkManager : IDisposable
 
         try
         {
-            if (!meshGenerationTask.Wait(1000))
+            if (!Task.WaitAll(meshGenerationTasks, 1000))
             {
-                Console.WriteLine("Mesh generation task did not complete in time, forcing disposal");
+                Console.WriteLine("Mesh generation tasks did not complete in time, forcing disposal");
             }
         }
-        catch (AggregateException ex) when (ex.InnerException is TaskCanceledException)
+        catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is TaskCanceledException))
         {
             // Expected when cancelling
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error waiting for mesh generation task: {ex.Message}");
+            Console.WriteLine($"Error waiting for mesh generation tasks: {ex.Message}");
         }
 
         // Dispose chunks on main thread
@@ -301,6 +343,7 @@ public class ChunkManager : IDisposable
         {
             queuedChunks.Clear();
             while (meshGenerationQueue.TryDequeue(out _)) { }
+            while (priorityMeshQueue.TryDequeue(out _)) { }
         }
 
         // Clear object pools

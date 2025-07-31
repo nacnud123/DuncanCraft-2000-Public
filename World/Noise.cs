@@ -34,6 +34,11 @@ namespace VoxelGame.World
 
         public Noise()
         {
+            InitializePermutationTable();
+        }
+
+        private void InitializePermutationTable()
+        {
             var random = new Random(_seed);
             var p = new int[256];
             for (int i = 0; i < 256; i++)
@@ -54,6 +59,8 @@ namespace VoxelGame.World
         public void SetSeed(int seed)
         {
             _seed = seed;
+            // Regenerate the permutation table with the new seed
+            InitializePermutationTable();
         }
 
         public void SetFrequency(float frequency)

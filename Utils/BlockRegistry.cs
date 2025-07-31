@@ -19,18 +19,24 @@ namespace VoxelGame.Utils
             blocks[1] = new StoneBlock();
             blocks[2] = new DirtBlock();
             blocks[3] = new GrassBlock();
-            blocks[4] = new LogBlock();
-            blocks[5] = new GlassBlock();
-            blocks[6] = new PlankBlock();
-            blocks[7] = new LeavesBlock();
-            blocks[8] = new WhiteBlock();
-            blocks[9] = new RedBlock();
-            blocks[10] = new GreenBlock();
-            blocks[11] = new BlueBlock();
-            blocks[12] = new BlackBlock();
-            blocks[13] = new YellowFlowerBlock();
-            blocks[14] = new SlabBlock();
-            blocks[15] = new SandBlock();
+            blocks[4] = new BedrockBlock();
+            blocks[5] = new LogBlock();
+            blocks[6] = new GlassBlock();
+            blocks[7] = new PlankBlock();
+            blocks[8] = new LeavesBlock();
+            blocks[9] = new WhiteBlock();
+            blocks[10] = new RedBlock();
+            blocks[11] = new GreenBlock();
+            blocks[12] = new BlueBlock();
+            blocks[13] = new BlackBlock();
+            blocks[14] = new YellowFlowerBlock();
+            blocks[15] = new SlabBlock();
+            blocks[16] = new SandBlock();
+            blocks[17] = new CoalOreBlock();
+            blocks[18] = new IronOreBlock();
+            blocks[19] = new GoldOreBlock();
+            blocks[20] = new DiamondOreBlock();
+            
         }
 
         public static int GetBlocksSize()
@@ -50,17 +56,23 @@ namespace VoxelGame.Utils
         public const byte Stone = 1;
         public const byte Dirt = 2;
         public const byte Grass = 3;
-        public const byte Log = 4;
-        public const byte Glass = 5;
-        public const byte Plank = 6;
-        public const byte Leaves = 7;
-        public const byte White = 8;
-        public const byte Red = 9;
-        public const byte Green = 10;
-        public const byte Blue = 11;
-        public const byte Black = 12;
-        public const byte YellowFlower = 13;
-        public const byte Slab = 14;
-        public const byte Sand = 15;
+        public const byte Bedrock = 4;
+        public const byte Log = 5;
+        public const byte Glass = 6;
+        public const byte Plank = 7;
+        public const byte Leaves = 8;
+        public const byte White = 9;
+        public const byte Red = 10;
+        public const byte Green = 11;
+        public const byte Blue = 12;
+        public const byte Black = 13;
+        public const byte YellowFlower = 14;
+        public const byte Slab = 15;
+        public const byte Sand = 16;
+        public const byte CoalOre = 17;
+        public const byte IronOre = 18;
+        public const byte GoldOre = 19;
+        public const byte DiamondOre = 20;
+        
     }
 }

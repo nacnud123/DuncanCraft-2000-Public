@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     public class BlackBlock : IBlock
     {
-        public int ID => 12;
+        public int ID => 13;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(3, 4);
 

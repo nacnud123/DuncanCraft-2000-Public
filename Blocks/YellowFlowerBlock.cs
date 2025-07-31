@@ -9,7 +9,7 @@ namespace VoxelGame.Blocks
 {
     internal class YellowFlowerBlock : IBlock
     {
-        public int ID => 13;
+        public int ID => 14;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(4, 1);
 

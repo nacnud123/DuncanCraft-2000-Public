@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     public class PlankBlock : IBlock
     {
-        public int ID => 6;
+        public int ID => 7;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 2);
 

@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     internal class BlueBlock : IBlock
     {
-        public int ID => 11;
+        public int ID => 12;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(3, 3);
 

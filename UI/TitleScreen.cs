@@ -105,7 +105,7 @@ namespace VoxelGame.UI
             // Version info at bottom
             ImGui.SetCursorPos(new Vector2(10, windowSize.Y - 30));
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.6f, 1.0f));
-            ImGui.Text("Version 1.2.1B");
+            ImGui.Text("Version 1.2.5B");
             ImGui.PopStyleColor();
 
             ImGui.End();

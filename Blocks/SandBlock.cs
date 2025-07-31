@@ -4,7 +4,7 @@ namespace VoxelGame.Blocks
 {
     public class SandBlock : IBlock
     {
-        public int ID => 15;
+        public int ID => 16;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(0, 3);
 
