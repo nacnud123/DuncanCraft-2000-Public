@@ -1,4 +1,5 @@
-﻿namespace VoxelGame.Utils
+﻿// My own version of Vector2 but for chunks. Could I just use a Vector2 probably but making my own data type is fun. | DA | 8/1/25
+namespace VoxelGame.Utils
 {
     public struct ChunkPos : IEquatable<ChunkPos>
     {

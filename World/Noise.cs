@@ -1,4 +1,5 @@
-﻿using System;
+﻿// Another class I am not 100% about. It generates noise, I know that, but I don't know the specifics. | DA | 8/1/25
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -9,7 +10,7 @@ namespace VoxelGame.World
     internal class Noise : IDisposable
     {
 
-        private bool disposed = false;
+        private bool mDisposed = false;
 
         public enum NoiseType
         {
@@ -18,9 +19,9 @@ namespace VoxelGame.World
             Value
         }
 
-        private int _seed = 1337;
-        private float _frequency = 0.01f;
-        private NoiseType _noiseType = NoiseType.OpenSimplex2;
+        private int mSeed = 1337;
+        private float mFrequency = 0.01f;
+        private NoiseType mNoiseType = NoiseType.OpenSimplex2;
 
         // Gradient vectors for 3D noise
         private static readonly float[] Grad3 = {
@@ -39,7 +40,7 @@ namespace VoxelGame.World
 
         private void InitializePermutationTable()
         {
-            var random = new Random(_seed);
+            var random = new Random(mSeed);
             var p = new int[256];
             for (int i = 0; i < 256; i++)
                 p[i] = i;
@@ -58,19 +59,18 @@ namespace VoxelGame.World
 
         public void SetSeed(int seed)
         {
-            _seed = seed;
-            // Regenerate the permutation table with the new seed
+            mSeed = seed;
             InitializePermutationTable();
         }
 
         public void SetFrequency(float frequency)
         {
-            _frequency = frequency;
+            mFrequency = frequency;
         }
 
         public void SetNoiseType(NoiseType noiseType)
         {
-            _noiseType = noiseType;
+            mNoiseType = noiseType;
         }
 
         public float GetNoise(float x, float y)
@@ -80,11 +80,11 @@ namespace VoxelGame.World
 
         public float GetNoise(float x, float y, float z)
         {
-            x *= _frequency;
-            y *= _frequency;
-            z *= _frequency;
+            x *= mFrequency;
+            y *= mFrequency;
+            z *= mFrequency;
 
-            return _noiseType switch
+            return mNoiseType switch
             {
                 NoiseType.OpenSimplex2 => SimplexNoise(x, y, z),
                 NoiseType.Perlin => PerlinNoise(x, y, z),
@@ -295,13 +295,13 @@ namespace VoxelGame.World
 
         protected virtual void Dispose(bool disposing)
         {
-            if (!disposed)
+            if (!mDisposed)
             {
                 if (disposing)
                 {
                     Array.Clear(_perm, 0, _perm.Length);
                 }
-                disposed = true;
+                mDisposed = true;
             }
         }
 

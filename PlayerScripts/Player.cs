@@ -1,4 +1,5 @@
-﻿using OpenTK.Mathematics;
+﻿// The main player script. Has components like the camera and terrain modifier. This script handles movement, physics, and collision while also handling updating it's components | DA | 8/1/25
+using OpenTK.Mathematics;
 using VoxelGame.Utils;
 using VoxelGame.World;
 
@@ -6,7 +7,6 @@ namespace VoxelGame.PlayerScripts
 {
     public class Player
     {
-        #region Variables
         #region Movement constants
         public const float MOVE_SPEED = 5f;
         public const float SPRINT_SPEED = 20f;
@@ -17,15 +17,21 @@ namespace VoxelGame.PlayerScripts
 
         #region  Components
         public Camera _Camera;
-        public InputManager inputManager;
-        public ChunkManager chunkManager;
-        public TerrainModifier terrainModifier;
+        public InputManager _InputManager;
+        public ChunkManager _ChunkManager;
+        public TerrainModifier _TerrainModifier;
         #endregion
 
         #region  Physics state
         private bool mIsOnGround;
         private Vector3 mVelocity;
         private Vector3 mPosition;
+
+        public const float MIN_DELTA_TIME = 1f / 120f;
+        public const float MAX_DELTA_TIME = 1f / 30f;
+        private const float FIXED_TIMESTEP = 1f / 60f;
+
+        private float mPhysicsAccumulator = 0f;
         #endregion
 
         #region  Player properties
@@ -37,52 +43,57 @@ namespace VoxelGame.PlayerScripts
         public Vector3 Velocity { get => mVelocity; set => mVelocity = value; }
         public Vector3 Position { get => mPosition; set => mPosition = value; }
         #endregion
-        #endregion
 
         public Player(ChunkManager world, Vector2i screenSize)
         {
             mPosition = mSpawnPosition;
-            chunkManager = world;
+            _ChunkManager = world;
             _Camera = new Camera(mSpawnPosition, (float)screenSize.X / screenSize.Y);
-            inputManager = new InputManager(this);
-            terrainModifier = new TerrainModifier(chunkManager);
+            _InputManager = new InputManager(this);
+            _TerrainModifier = new TerrainModifier(_ChunkManager);
         }
 
         public void Update(float deltaTime)
         {
-            updatePhysics(deltaTime);
-            handleFallReset();
+            mPhysicsAccumulator += deltaTime;
 
-            Vector3 targetPosition = mPosition + mVelocity * deltaTime;
-            moveWithCollision(targetPosition);
+            while (mPhysicsAccumulator >= FIXED_TIMESTEP)
+            {
+                updatePhysics(FIXED_TIMESTEP);
+
+                // Incase the player like falls out of the world, reset their position
+                if (mPosition.Y < -10)
+                {
+                    mPosition = mSpawnPosition;
+                    mVelocity = Vector3.Zero;
+                }
+
+                Vector3 targetPosition = mPosition + mVelocity * FIXED_TIMESTEP;
+                moveWithCollision(targetPosition);
+
+                mPhysicsAccumulator -= FIXED_TIMESTEP;
+            }
 
             updateCamera();
             updateChunkPosition();
 
-            // Reset horizontal velocity
             mVelocity.X = mVelocity.Z = 0f;
         }
-
         private void updatePhysics(float deltaTime)
         {
+            deltaTime = Math.Clamp(deltaTime, MIN_DELTA_TIME, MAX_DELTA_TIME);
+
             mIsOnGround = isOnGround();
 
             if (!mIsOnGround)
             {
                 mVelocity.Y -= GRAVITY * deltaTime;
+
+                mVelocity.Y = Math.Max(mVelocity.Y, -20f);
             }
             else if (mVelocity.Y < 0)
             {
                 mVelocity.Y = 0;
-            }
-        }
-
-        private void handleFallReset()
-        {
-            if (mPosition.Y < -10)
-            {
-                mPosition = mSpawnPosition;
-                mVelocity = Vector3.Zero;
             }
         }
 
@@ -208,7 +219,7 @@ namespace VoxelGame.PlayerScripts
                 (int)Math.Floor(worldZ / (float)Constants.CHUNK_SIZE)
             );
 
-            Chunk chunk = chunkManager.GetChunk(chunkPos);
+            Chunk chunk = _ChunkManager.GetChunk(chunkPos);
             if (chunk == null) return BlockIDs.Air;
 
             Vector3i localPos = new Vector3i(
@@ -232,8 +243,8 @@ namespace VoxelGame.PlayerScripts
 
         private void updateChunkPosition()
         {
-            VoxelGame.init.currentChunkPosition.X = (int)Math.Floor(mPosition.X / Constants.CHUNK_SIZE);
-            VoxelGame.init.currentChunkPosition.Y = (int)Math.Floor(mPosition.Z / Constants.CHUNK_SIZE);
+            VoxelGame.init.CurrentChunkPosition.X = (int)Math.Floor(mPosition.X / Constants.CHUNK_SIZE);
+            VoxelGame.init.CurrentChunkPosition.Y = (int)Math.Floor(mPosition.Z / Constants.CHUNK_SIZE);
         }
 
         public void Jump()

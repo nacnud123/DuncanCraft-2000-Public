@@ -235,11 +235,12 @@ void main()
         private void SetPerFrameImGuiData(float deltaSeconds)
         {
             ImGuiIOPtr io = ImGui.GetIO();
-            io.DisplaySize = new System.Numerics.Vector2(
-                _windowWidth / _scaleFactor.X,
-                _windowHeight / _scaleFactor.Y);
-            io.DisplayFramebufferScale = _scaleFactor;
-            io.DeltaTime = deltaSeconds; // DeltaTime is in seconds.
+
+            io.DisplaySize = new System.Numerics.Vector2(_windowWidth, _windowHeight);
+
+            io.DisplayFramebufferScale = System.Numerics.Vector2.One;
+
+            io.DeltaTime = deltaSeconds;
         }
 
         readonly List<char> PressedChars = new List<char>();
@@ -251,18 +252,16 @@ void main()
             MouseState MouseState = wnd.MouseState;
             KeyboardState KeyboardState = wnd.KeyboardState;
 
-
-
             io.MouseDown[0] = MouseState[MouseButton.Left];
             io.MouseDown[1] = MouseState[MouseButton.Right];
             io.MouseDown[2] = MouseState[MouseButton.Middle];
             io.MouseDown[3] = MouseState[MouseButton.Button4];
             io.MouseDown[4] = MouseState[MouseButton.Button5];
 
-            var screenPoint = new Vector2i((int)MouseState.X, (int)MouseState.Y);
-            var adjustedPoint = new Vector2i(screenPoint.X, screenPoint.Y + 20);
+            var mouseX = MouseState.X;
+            var mouseY = MouseState.Y;
 
-            io.MousePos = new System.Numerics.Vector2(adjustedPoint.X, adjustedPoint.Y);
+            io.MousePos = new System.Numerics.Vector2(mouseX, mouseY);
 
             foreach (Keys key in Enum.GetValues(typeof(Keys)))
             {
@@ -379,7 +378,6 @@ void main()
                 }
             }
 
-            // Setup orthographic projection matrix into our constant buffer
             ImGuiIOPtr io = ImGui.GetIO();
             Matrix4 mvp = Matrix4.CreateOrthographicOffCenter(
                 0.0f,
@@ -430,7 +428,6 @@ void main()
                         GL.BindTexture(TextureTarget.Texture2D, (int)pcmd.TextureId);
                         CheckGLError("Texture");
 
-                        // We do _windowHeight - (int)clip.W instead of (int)clip.Y because gl has flipped Y when it comes to these coordinates
                         var clip = pcmd.ClipRect;
                         GL.Scissor((int)clip.X, _windowHeight - (int)clip.W, (int)(clip.Z - clip.X), (int)(clip.W - clip.Y));
                         CheckGLError("Scissor");

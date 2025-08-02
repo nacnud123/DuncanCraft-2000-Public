@@ -1,4 +1,5 @@
-﻿using SFML.Audio;
+﻿// The audio manager for the game. It lets you play sounds / manages what sounds should be played. | DA | 8/1/25
+using SFML.Audio;
 using System;
 using System.Collections.Generic;
 using VoxelGame.Blocks;
@@ -7,38 +8,38 @@ namespace VoxelGame.Audio
 {
     public class AudioManager : IDisposable
     {
-        private Dictionary<string, SoundBuffer> _soundBuffers;
-        private List<Sound> _activeSounds;
-        private bool _disposed = false;
+        private Dictionary<string, SoundBuffer> mSoundBuffers;
+        private List<Sound> mActiveSounds;
+        private bool mDisposed = false;
 
         public AudioManager()
         {
-            _soundBuffers = new Dictionary<string, SoundBuffer>();
-            _activeSounds = new List<Sound>();
+            mSoundBuffers = new Dictionary<string, SoundBuffer>();
+            mActiveSounds = new List<Sound>();
             Console.WriteLine("SFML Audio initialized");
         }
 
         public void PlayAudio(string filePath, bool loop = true)
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
             try
             {
                 CleanupFinishedSounds();
 
-                if (!_soundBuffers.ContainsKey(filePath))
+                if (!mSoundBuffers.ContainsKey(filePath))
                 {
                     var buffer = new SoundBuffer(filePath);
-                    _soundBuffers[filePath] = buffer;
+                    mSoundBuffers[filePath] = buffer;
                 }
 
-                var sound = new Sound(_soundBuffers[filePath])
+                var sound = new Sound(mSoundBuffers[filePath])
                 {
                     Loop = loop,
                     Volume = 100f
                 };
 
-                _activeSounds.Add(sound);
+                mActiveSounds.Add(sound);
                 sound.Play();
             }
             catch (Exception ex)
@@ -49,9 +50,9 @@ namespace VoxelGame.Audio
 
         public void Stop()
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
-            foreach (var sound in _activeSounds)
+            foreach (var sound in mActiveSounds)
             {
                 try
                 {
@@ -66,10 +67,10 @@ namespace VoxelGame.Audio
 
         public void SetVolume(float volume)
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
             volume = Math.Max(0f, Math.Min(100f, volume * 100f));
-            foreach (var sound in _activeSounds)
+            foreach (var sound in mActiveSounds)
             {
                 try
                 {
@@ -84,7 +85,7 @@ namespace VoxelGame.Audio
 
         public void PlayBlockBreakSound(BlockMaterial blockMaterial)
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
             switch (blockMaterial)
             {
@@ -117,36 +118,36 @@ namespace VoxelGame.Audio
 
         public void CleanupFinishedSounds()
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
-            for (int i = _activeSounds.Count - 1; i >= 0; i--)
+            for (int i = mActiveSounds.Count - 1; i >= 0; i--)
             {
                 try
                 {
-                    if (_activeSounds[i].Status == SoundStatus.Stopped)
+                    if (mActiveSounds[i].Status == SoundStatus.Stopped)
                     {
-                        _activeSounds[i].Dispose();
-                        _activeSounds.RemoveAt(i);
+                        mActiveSounds[i].Dispose();
+                        mActiveSounds.RemoveAt(i);
                     }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error cleaning up sound: {ex.Message}");
-                    _activeSounds.RemoveAt(i);
+                    mActiveSounds.RemoveAt(i);
                 }
             }
         }
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (mDisposed) return;
 
             Console.WriteLine("Disposing AudioManager...");
 
             try
             {
-                // Stop all sounds first
-                foreach (var sound in _activeSounds)
+                // Stop all sounds
+                foreach (var sound in mActiveSounds)
                 {
                     try
                     {
@@ -161,7 +162,7 @@ namespace VoxelGame.Audio
                 System.Threading.Thread.Sleep(50);
 
                 // Dispose all sounds
-                foreach (var sound in _activeSounds)
+                foreach (var sound in mActiveSounds)
                 {
                     try
                     {
@@ -172,10 +173,10 @@ namespace VoxelGame.Audio
                         Console.WriteLine($"Error disposing sound: {ex.Message}");
                     }
                 }
-                _activeSounds.Clear();
+                mActiveSounds.Clear();
 
                 // Dispose all sound buffers
-                foreach (var buffer in _soundBuffers.Values)
+                foreach (var buffer in mSoundBuffers.Values)
                 {
                     try
                     {
@@ -186,7 +187,7 @@ namespace VoxelGame.Audio
                         Console.WriteLine($"Error disposing sound buffer: {ex.Message}");
                     }
                 }
-                _soundBuffers.Clear();
+                mSoundBuffers.Clear();
 
                 Console.WriteLine("AudioManager disposed successfully");
             }
@@ -196,7 +197,7 @@ namespace VoxelGame.Audio
             }
             finally
             {
-                _disposed = true;
+                mDisposed = true;
                 GC.SuppressFinalize(this);
             }
         }
@@ -204,7 +205,7 @@ namespace VoxelGame.Audio
         // Backup
         ~AudioManager()
         {
-            if (!_disposed)
+            if (!mDisposed)
             {
                 Console.WriteLine("AudioManager finalizer called - dispose was not called properly!");
                 Dispose();

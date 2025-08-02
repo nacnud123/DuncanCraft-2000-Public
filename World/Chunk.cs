@@ -1,4 +1,5 @@
-﻿using OpenTK.Graphics.OpenGL4;
+﻿// Main chunk class. Holds stuff like the blocks in the chunk and has the functions that allows for chunk re-generation. Also has stuff related to OpenGL. | DA | 8/1/25
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using VoxelGame.Blocks;
 using VoxelGame.Utils;
@@ -11,32 +12,33 @@ namespace VoxelGame.World
     {
         public ChunkPos Position { get; }
         public byte[,,] Voxels { get; set; }
-        public List<Vertex> Vertices { get; private set; }
-        public List<uint> Indices { get; private set; }
+        public List<Vertex>? Vertices { get; private set; }
+        public List<uint>? Indices { get; private set; }
 
         public int VAO { get; private set; }
         public int VBO { get; private set; }
         public int EBO { get; private set; }
 
-        private int indexCount = 0;
+        private int mIndexCount = 0;
 
-        public bool MeshGenerated { get; set; }
-        public bool MeshUploaded { get; set; }
-
-        private bool disposed = false;
+        public bool MeshGenerated;
+        public bool MeshUploaded;
+        public bool TerrainGenerated;
         public bool Modified = false;
 
-        public byte biome;
+        private bool mDisposed = false;
 
-        Vector3 chunkWorldOffset = new Vector3();
+        public byte Biome;
 
-        Vector3[] faceNormals =
+        private Vector3 mChunkWorldOffset = new Vector3();
+
+        private Vector3[] mFaceNormals =
         [
             new Vector3(0, 0, 1), new Vector3(0, 0, -1), new Vector3(-1, 0, 0),
             new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0)
         ];
 
-        Vector3[] flowerNormals =
+        private Vector3[] mFlowerNormals =
         [
             new Vector3(0.707f, 0, 0.707f),
             new Vector3(-0.707f, 0, -0.707f),
@@ -44,9 +46,9 @@ namespace VoxelGame.World
             new Vector3(0.707f, 0, -0.707f)
         ];
 
-        private bool openGLMade = false;
+        private bool mOpenGLMade = false;
 
-        public Chunk(ChunkPos position)
+        public Chunk(ChunkPos position, bool generateTerrain = true)
         {
             Position = position;
             Voxels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
@@ -54,10 +56,19 @@ namespace VoxelGame.World
             Vertices = null;
             Indices = null;
 
-            generateTerrain();
+            if (generateTerrain)
+            {
+                generateTerrainSync();
+                TerrainGenerated = true;
+            }
+            else
+            {
+                TerrainGenerated = false;
+            }
+
             makeOpenGLStuff();
 
-            chunkWorldOffset = new Vector3(
+            mChunkWorldOffset = new Vector3(
                 Position.X * Constants.CHUNK_SIZE,
                 0,
                 Position.Z * Constants.CHUNK_SIZE
@@ -66,16 +77,16 @@ namespace VoxelGame.World
 
         private void makeOpenGLStuff()
         {
-            if (!openGLMade)
+            if (!mOpenGLMade)
             {
                 VAO = GL.GenVertexArray();
                 VBO = GL.GenBuffer();
                 EBO = GL.GenBuffer();
-                openGLMade = true;
+                mOpenGLMade = true;
             }
         }
 
-        private void generateTerrain()
+        private void generateTerrainSync()
         {
             VoxelGame.init.TerrainGen.GenerateTerrain(this);
         }
@@ -122,7 +133,7 @@ namespace VoxelGame.World
             }
 
             Chunk? neighborChunk = chunkManager.GetChunk(neighborPos);
-            if (neighborChunk != null)
+            if (neighborChunk != null && neighborChunk.TerrainGenerated)
             {
                 return BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, y, neighborZ]).IsSolid;
             }
@@ -130,10 +141,57 @@ namespace VoxelGame.World
             return false;
         }
 
+        // Update gravity blocks when the chunk is updated. Is this function convoluted and inefficient, yes. Does it work consistently, yes. So it stays for now
+        private void updateGravityBlocks(ChunkManager manager)
+        {
+            bool blocksChanged = false;
+
+            for (int y = Constants.CHUNK_HEIGHT - 1; y >= 0; y--)
+            {
+                for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+                {
+                    for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                    {
+                        byte blockType = Voxels[x, y, z];
+                        
+                        if(blockType == BlockIDs.Air || !BlockRegistry.GetBlock(blockType).GravityBlock)
+                            continue;
+
+                        if (!isVoxelSolid(x, y - 1, z, manager))
+                        {
+                            int landingY = y;
+                            for (int checkY = y - 1; checkY >= 0; checkY--)
+                            {
+                                if (isVoxelSolid(x, checkY, z, manager))
+                                {
+                                    landingY = checkY + 1;
+                                    break;
+                                }
+                                landingY = 0;
+                            }
+
+                            if (landingY < y)
+                            {
+                                Voxels[x, y, z] = BlockIDs.Air;
+                                Voxels[x, landingY, z] = blockType;
+                                blocksChanged = true;
+                                Modified = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (blocksChanged)
+                MeshGenerated = false;
+        }
+
         public void GenMesh(ChunkManager chunkManager)
         {
-            if (disposed)
+            if (mDisposed || !TerrainGenerated)
                 return;
+            
+            updateGravityBlocks(chunkManager);
 
             bool gotPooledVertex = false;
             bool gotPooledIndex = false;
@@ -142,7 +200,8 @@ namespace VoxelGame.World
             if (newVertices.Capacity > 0) gotPooledVertex = true;
 
             var newIndices = chunkManager.GetIndexList();
-            if (newIndices.Capacity > 0) gotPooledIndex = true;
+            if (newIndices.Capacity > 0) 
+                gotPooledIndex = true;
 
             uint vertexIndex = 0;
 
@@ -163,22 +222,22 @@ namespace VoxelGame.World
 
                         bool[] showFace = { showFront, showBack, showLeft, showRight, showTop, showBottom };
 
-                        Vector3[,] blockFace = getFace(Voxels[x, y, z]);
+                        Vector3[,] blockFace = GetFace(Voxels[x, y, z]);
                         int faceCount = blockFace.GetLength(0);
 
                         for (int face = 0; face < faceCount; face++)
                         {
                             if (Voxels[x, y, z] != BlockIDs.YellowFlower && !showFace[face]) continue;
 
-                            Vector2[] texCoords = GetTextureCoords(Voxels[x, y, z], face);
-                            Vector3 normal = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? flowerNormals[face] : faceNormals[face];
+                            Vector2[] texCoords = getTextureCoords(Voxels[x, y, z], face);
+                            Vector3 normal = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? mFlowerNormals[face] : mFaceNormals[face];
 
                             for (int v = 0; v < 4; v++)
                             {
                                 Vector3 localPosition = new Vector3(x, y, z) + blockFace[face, v];
-                                Vector3 worldPosition = localPosition + chunkWorldOffset;
+                                Vector3 worldPosition = localPosition + mChunkWorldOffset;
 
-                                float lightValue = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? 1.0f : GetFaceLightValue(x, y, z, face, chunkManager);
+                                float lightValue = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? 1.0f : getFaceLighting(x, y, z, face, chunkManager);
 
                                 Vertex vertex = new Vertex(worldPosition, normal, texCoords[v], (float)Voxels[x, y, z], lightValue);
                                 newVertices.Add(vertex);
@@ -227,28 +286,28 @@ namespace VoxelGame.World
 
         public void UploadMesh(ChunkManager chunkManager)
         {
-            if (disposed || !MeshGenerated || Vertices == null || Vertices.Count == 0)
+            if (mDisposed || !MeshGenerated || !TerrainGenerated || Vertices == null || Vertices.Count == 0)
                 return;
 
             try
             {
                 // Clean up old buffers
-                if (MeshUploaded && openGLMade)
+                if (MeshUploaded && mOpenGLMade)
                 {
                     GL.DeleteVertexArray(VAO);
                     GL.DeleteBuffer(VBO);
                     GL.DeleteBuffer(EBO);
                     MeshUploaded = false;
-                    openGLMade = false;
+                    mOpenGLMade = false;
                 }
 
                 // Make new buffers
-                if (!openGLMade)
+                if (!mOpenGLMade)
                 {
                     VAO = GL.GenVertexArray();
                     VBO = GL.GenBuffer();
                     EBO = GL.GenBuffer();
-                    openGLMade = true;
+                    mOpenGLMade = true;
                 }
 
                 GL.BindVertexArray(VAO);
@@ -291,6 +350,7 @@ namespace VoxelGame.World
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
                 GL.EnableVertexAttribArray(3);
 
+                // Lighting
                 GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false,
                     System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
                     System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.LightValue)));
@@ -302,7 +362,7 @@ namespace VoxelGame.World
 
                 MeshUploaded = true;
 
-                indexCount = Indices?.Count ?? 0;
+                mIndexCount = Indices?.Count ?? 0;
 
                 // Clear the CPU lists
                 if (Vertices != null)
@@ -323,7 +383,7 @@ namespace VoxelGame.World
             }
         }
 
-        private Vector2[] GetTextureCoords(byte voxelType, int faceIndex)
+        private Vector2[] getTextureCoords(byte voxelType, int faceIndex)
         {
             IBlock block = BlockRegistry.GetBlock(voxelType);
 
@@ -341,21 +401,21 @@ namespace VoxelGame.World
                     break;
             }
 
-            return new Vector2[]
-            {
+            return
+            [
                 coords.TopLeft,
                 new Vector2(coords.BottomRight.X, coords.TopLeft.Y),
                 coords.BottomRight,
                 new Vector2(coords.TopLeft.X, coords.BottomRight.Y)
-            };
+            ];
         }
 
         public void Render()
         {
-            if (!MeshUploaded || indexCount == 0 || disposed) return;
+            if (!MeshUploaded || !TerrainGenerated || mIndexCount == 0 || mDisposed) return;
 
             GL.BindVertexArray(VAO);
-            GL.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, 0);
+            GL.DrawElements(PrimitiveType.Triangles, mIndexCount, DrawElementsType.UnsignedInt, 0);
             GL.BindVertexArray(0);
         }
 
@@ -367,51 +427,42 @@ namespace VoxelGame.World
 
         protected virtual void Dispose(bool disposing)
         {
-            if (disposed)
+            if (mDisposed)
                 return;
 
             if (disposing)
             {
                 // Return lists to pool
-                if (Vertices != null && VoxelGame.init?.chunkManager != null)
+                if (Vertices != null && VoxelGame.init?._ChunkManager != null)
                 {
-                    VoxelGame.init.chunkManager.ReturnVertexList(Vertices);
-                    Vertices = null;
+                    Voxels = null;
                 }
 
-                if (Indices != null && VoxelGame.init?.chunkManager != null)
+                // Clean up OpenGL resources
+                if (mOpenGLMade)
                 {
-                    VoxelGame.init.chunkManager.ReturnIndexList(Indices);
-                    Indices = null;
+                    try
+                    {
+                        GL.DeleteBuffer(VBO);
+                        GL.DeleteBuffer(EBO);
+                        GL.DeleteVertexArray(VAO);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing GL resources for chunk at {Position}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        mOpenGLMade = false;
+                        MeshUploaded = false;
+                        VAO = VBO = EBO = 0;
+                    }
                 }
 
-                Voxels = null;
+                mDisposed = true;
+
+                mIndexCount = 0;
             }
-
-            // Clean up OpenGL resources
-            if (openGLMade)
-            {
-                try
-                {
-                    GL.DeleteBuffer(VBO);
-                    GL.DeleteBuffer(EBO);
-                    GL.DeleteVertexArray(VAO);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error disposing GL resources for chunk at {Position}: {ex.Message}");
-                }
-                finally
-                {
-                    openGLMade = false;
-                    MeshUploaded = false;
-                    VAO = VBO = EBO = 0;
-                }
-            }
-
-            disposed = true;
-
-            indexCount = 0;
         }
 
         public bool IsInBounds(Vector3i pos) =>
@@ -424,7 +475,7 @@ namespace VoxelGame.World
             return Voxels[position.X, position.Y, position.Z];
         }
 
-        public Vector3[,] getFace(byte block)
+        public Vector3[,] GetFace(byte block)
         {
             if (block == BlockIDs.Slab)
             {
@@ -475,7 +526,7 @@ namespace VoxelGame.World
         }
 
         #region Lighting
-        private float GetFaceLightValue(int x, int y, int z, int face, ChunkManager chunkManager)
+        private float getFaceLighting(int x, int y, int z, int face, ChunkManager chunkManager)
         {
             float baseLighting = .8f;
 
@@ -483,23 +534,34 @@ namespace VoxelGame.World
 
             switch (face)
             {
-                case 0: checkZ += 1; break; // Front face
-                case 1: checkZ -= 1; break; // Back face
-                case 2: checkX -= 1; break; // Left face
-                case 3: checkX += 1; break; // Right face
-                case 4: break;              // Top face
-                case 5: checkY -= 1; break; // Bottom face
+                case 0: // Front face
+                    checkZ += 1; 
+                    break; 
+                case 1: // Back face
+                    checkZ -= 1; 
+                    break; 
+                case 2: // Left face
+                    checkX -= 1; 
+                    break; 
+                case 3: // Right face
+                    checkX += 1; 
+                    break; 
+                case 4: // Top face
+                    break;              
+                case 5: // Bottom face
+                    checkY -= 1; 
+                    break; 
             }
-            return CanSeeSunFast(checkX, checkY, checkZ, chunkManager) ? baseLighting : .4f;
+            return canSeeSun(checkX, checkY, checkZ, chunkManager) ? baseLighting : .4f;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool CanSeeSunFast(int x, int y, int z, ChunkManager manager)
+        private bool canSeeSun(int x, int y, int z, ChunkManager manager)
         {
 
             for (int checkY = y + 1; checkY < Constants.CHUNK_HEIGHT; checkY++)
             {
-                if( x >= 0 && x < Constants.CHUNK_SIZE && z >= 0 && z < Constants.CHUNK_SIZE)
+                if (x >= 0 && x < Constants.CHUNK_SIZE && z >= 0 && z < Constants.CHUNK_SIZE)
                 {
                     if (BlockRegistry.GetBlock(Voxels[x, checkY, z]).IsSolid)
                     {
@@ -535,7 +597,7 @@ namespace VoxelGame.World
                     }
 
                     Chunk? neighborChunk = manager.GetChunk(neighborPos);
-                    if (neighborChunk != null)
+                    if (neighborChunk != null && neighborChunk.TerrainGenerated)
                     {
                         if (BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, checkY, neighborZ]).IsSolid)
                         {

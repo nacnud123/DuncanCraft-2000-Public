@@ -1,4 +1,5 @@
-﻿using ImGuiNET;
+﻿// Makes the pause menu UI. | DA | 8/1/25
+using ImGuiNET;
 using System;
 using System.Numerics;
 
@@ -11,7 +12,6 @@ namespace VoxelGame.UI
 
         public void Render()
         {
-            // Get the display size
             var io = ImGui.GetIO();
             var displaySize = io.DisplaySize;
 

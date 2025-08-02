@@ -1,4 +1,5 @@
-﻿using OpenTK.Graphics.OpenGL4;
+﻿// Block highlighter script, it draws a slightly bigger cube around the cube you are looking at. | DA | 8/1/25
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using VoxelGame.Utils;
 using VoxelGame.World;
@@ -7,11 +8,15 @@ namespace VoxelGame.PlayerScripts
 {
     public class BlockHighlighter
     {
-        private int VAO, VBO;
-        private Shader highlightShader;
-        private Vector3i? highlightedBlock;
+        private int mVAO, mVBO;
+
+        private Shader? mHighlightShader;
+
+        private Vector3i? mHighlightedBlock;
+
         private const float REACH_DISTANCE = 5.0f;
-        private readonly float[] wireframeCube =
+
+        private readonly float[] _mWireframeCube =
         [
             0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
             1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 1.0f,
@@ -29,18 +34,18 @@ namespace VoxelGame.PlayerScripts
 
         public BlockHighlighter()
         {
-            InitializeBuffers();
-            highlightShader = new Shader("Shaders/highlight_shader.vert", "Shaders/highlight_shader.frag");
+            initBuffers();
+            mHighlightShader = new Shader("Shaders/highlight_shader.vert", "Shaders/highlight_shader.frag");
         }
 
-        private void InitializeBuffers()
+        private void initBuffers()
         {
-            VAO = GL.GenVertexArray();
-            VBO = GL.GenBuffer();
+            mVAO = GL.GenVertexArray();
+            mVBO = GL.GenBuffer();
 
-            GL.BindVertexArray(VAO);
-            GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
-            GL.BufferData(BufferTarget.ArrayBuffer, wireframeCube.Length * sizeof(float), wireframeCube, BufferUsageHint.StaticDraw);
+            GL.BindVertexArray(mVAO);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, mVBO);
+            GL.BufferData(BufferTarget.ArrayBuffer, _mWireframeCube.Length * sizeof(float), _mWireframeCube, BufferUsageHint.StaticDraw);
 
             GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
             GL.EnableVertexAttribArray(0);
@@ -50,10 +55,10 @@ namespace VoxelGame.PlayerScripts
 
         public void Update(Camera camera, ChunkManager chunkManager)
         {
-            highlightedBlock = GetTargetBlock(camera, chunkManager);
+            mHighlightedBlock = getTargetBlock(camera, chunkManager);
         }
 
-        private Vector3i? GetTargetBlock(Camera camera, ChunkManager chunkManager)
+        private Vector3i? getTargetBlock(Camera camera, ChunkManager chunkManager)
         {
             Vector3 rayStart = camera.Position;
             Vector3 rayDirection = camera.Front;
@@ -69,7 +74,7 @@ namespace VoxelGame.PlayerScripts
                     (int)Math.Floor(currentPos.Z)
                 );
 
-                if (IsBlockSolid(blockPos, chunkManager))
+                if (isBlockSolid(blockPos, chunkManager))
                 {
                     return blockPos;
                 }
@@ -80,7 +85,7 @@ namespace VoxelGame.PlayerScripts
             return null;
         }
 
-        private bool IsBlockSolid(Vector3i worldPos, ChunkManager chunkManager)
+        private bool isBlockSolid(Vector3i worldPos, ChunkManager chunkManager)
         {
             if (worldPos.Y < 0 || worldPos.Y >= Constants.CHUNK_HEIGHT)
             {
@@ -115,7 +120,7 @@ namespace VoxelGame.PlayerScripts
 
         public void Render(Matrix4 view, Matrix4 projection)
         {
-            if (highlightedBlock == null)
+            if (mHighlightedBlock == null)
             {
                 return;
             }
@@ -127,25 +132,25 @@ namespace VoxelGame.PlayerScripts
 
             GL.DepthFunc(DepthFunction.Lequal);
 
-            GL.LineWidth(3.0f);
+            GL.LineWidth(5.0f);
 
-            highlightShader.Use();
+            mHighlightShader?.Use();
 
-            Vector3 blockPos = new Vector3(highlightedBlock.Value.X, highlightedBlock.Value.Y, highlightedBlock.Value.Z);
+            Vector3 blockPos = new Vector3(mHighlightedBlock.Value.X, mHighlightedBlock.Value.Y, mHighlightedBlock.Value.Z);
             Matrix4 model = Matrix4.CreateScale(1.002f) * Matrix4.CreateTranslation(blockPos - new Vector3(0.001f));
 
-            int modelLoc = GL.GetUniformLocation(highlightShader.Handle, "model");
-            int viewLoc = GL.GetUniformLocation(highlightShader.Handle, "view");
-            int projLoc = GL.GetUniformLocation(highlightShader.Handle, "projection");
-            int colorLoc = GL.GetUniformLocation(highlightShader.Handle, "highlightColor");
+            int modelLoc = GL.GetUniformLocation(mHighlightShader.Handle, "model");
+            int viewLoc = GL.GetUniformLocation(mHighlightShader.Handle, "view");
+            int projLoc = GL.GetUniformLocation(mHighlightShader.Handle, "projection");
+            int colorLoc = GL.GetUniformLocation(mHighlightShader.Handle, "highlightColor");
 
             GL.UniformMatrix4(modelLoc, false, ref model);
             GL.UniformMatrix4(viewLoc, false, ref view);
             GL.UniformMatrix4(projLoc, false, ref projection);
-            GL.Uniform3(colorLoc, new Vector3(0.8f, 0.8f, 0.8f));
+            GL.Uniform3(colorLoc, new Vector3(0.0f, 0.0f, 0.0f));
 
-            GL.BindVertexArray(VAO);
-            GL.DrawArrays(PrimitiveType.Lines, 0, wireframeCube.Length / 3);
+            GL.BindVertexArray(mVAO);
+            GL.DrawArrays(PrimitiveType.Lines, 0, _mWireframeCube.Length / 3);
 
             GL.BindVertexArray(0);
             GL.LineWidth(1.0f);
@@ -156,14 +161,14 @@ namespace VoxelGame.PlayerScripts
 
         public Vector3i? GetHighlightedBlock()
         {
-            return highlightedBlock;
+            return mHighlightedBlock;
         }
 
         public void Dispose()
         {
-            GL.DeleteVertexArray(VAO);
-            GL.DeleteBuffer(VBO);
-            highlightShader?.Dispose();
+            GL.DeleteVertexArray(mVAO);
+            GL.DeleteBuffer(mVBO);
+            mHighlightShader?.Dispose();
         }
     }
 }

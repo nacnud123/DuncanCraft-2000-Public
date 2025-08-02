@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿// Holds the consts of the game, stuff that is important to the game functioning. | DA | 8/1/25
 
 namespace VoxelGame.Utils
 {

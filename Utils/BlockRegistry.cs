@@ -1,12 +1,13 @@
-﻿using VoxelGame.Blocks;
+﻿// Holds all the blocks in the game and allows for an easy way to reference blocks. Also allows for an easy way to get block IDs. | DA | 8/1/25
+using VoxelGame.Blocks;
 
 namespace VoxelGame.Utils
 {
     public static class BlockRegistry
     {
-        private static Dictionary<byte, IBlock> blocks = new Dictionary<byte, IBlock>();
+        private static Dictionary<byte, IBlock> mBlocks = new Dictionary<byte, IBlock>();
 
-        public static Dictionary<byte, IBlock> GetAllBocks { get => blocks; }
+        public static Dictionary<byte, IBlock> GetAllBocks { get => mBlocks; }
 
         static BlockRegistry()
         {
@@ -15,38 +16,38 @@ namespace VoxelGame.Utils
 
         private static void RegisterBlocks()
         {
-            blocks[0] = new AirBlock();
-            blocks[1] = new StoneBlock();
-            blocks[2] = new DirtBlock();
-            blocks[3] = new GrassBlock();
-            blocks[4] = new BedrockBlock();
-            blocks[5] = new LogBlock();
-            blocks[6] = new GlassBlock();
-            blocks[7] = new PlankBlock();
-            blocks[8] = new LeavesBlock();
-            blocks[9] = new WhiteBlock();
-            blocks[10] = new RedBlock();
-            blocks[11] = new GreenBlock();
-            blocks[12] = new BlueBlock();
-            blocks[13] = new BlackBlock();
-            blocks[14] = new YellowFlowerBlock();
-            blocks[15] = new SlabBlock();
-            blocks[16] = new SandBlock();
-            blocks[17] = new CoalOreBlock();
-            blocks[18] = new IronOreBlock();
-            blocks[19] = new GoldOreBlock();
-            blocks[20] = new DiamondOreBlock();
+            mBlocks[0] = new AirBlock();
+            mBlocks[1] = new StoneBlock();
+            mBlocks[2] = new DirtBlock();
+            mBlocks[3] = new GrassBlock();
+            mBlocks[4] = new BedrockBlock();
+            mBlocks[5] = new LogBlock();
+            mBlocks[6] = new GlassBlock();
+            mBlocks[7] = new PlankBlock();
+            mBlocks[8] = new LeavesBlock();
+            mBlocks[9] = new WhiteBlock();
+            mBlocks[10] = new RedBlock();
+            mBlocks[11] = new GreenBlock();
+            mBlocks[12] = new BlueBlock();
+            mBlocks[13] = new BlackBlock();
+            mBlocks[14] = new YellowFlowerBlock();
+            mBlocks[15] = new SlabBlock();
+            mBlocks[16] = new SandBlock();
+            mBlocks[17] = new CoalOreBlock();
+            mBlocks[18] = new IronOreBlock();
+            mBlocks[19] = new GoldOreBlock();
+            mBlocks[20] = new DiamondOreBlock();
             
         }
 
         public static int GetBlocksSize()
         {
-            return blocks.Count;
+            return mBlocks.Count;
         }
 
         public static IBlock GetBlock(byte voxelType)
         {
-            return blocks.TryGetValue(voxelType, out IBlock block) ? block : null;
+            return mBlocks.TryGetValue(voxelType, out IBlock block) ? block : null;
         }
     }
 

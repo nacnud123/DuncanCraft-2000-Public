@@ -1,43 +1,39 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿// The main class that generates the world terrain. | DA | 8/1/25
 using VoxelGame.Utils;
 
 namespace VoxelGame.World
 {
     public class TerrainGenerator : IDisposable
     {
-        private readonly Noise _heightNoise;
-        private readonly Noise _caveNoise;
-        private readonly Noise _biomeNoise;
-        private readonly Noise _coalNoise;
-        private readonly Noise _ironNoise;
-        private readonly Noise _goldNoise;
-        private readonly Noise _diamondNoise;
-        private readonly TreeGenerator _treeGenerator;
+        private readonly Noise _mHeightNoise;
+        private readonly Noise _mCaveNoise;
+        private readonly Noise _mBiomeNoise;
+        private readonly Noise _mCoalNoise;
+        private readonly Noise _mIronNoise;
+        private readonly Noise _mGoldNoise;
+        private readonly Noise _mDiamondNoise;
+        private readonly TreeGenerator _mTreeGenerator;
 
-        private const int MinCaveDepth = 0;
-        private const float CaveThreshold = 0.6f;
-        private const float CaveScale = 0.1f;
-        private const float TreeDensity = 0.02f;
+        private const int MIN_CAVE_DEPTH = 0;
+        private const float CAVE_THRESHOLD = 0.6f;
+        private const float CAVE_SCALE = 0.1f;
+        private const float TREE_DENSITY = 0.02f;
 
-        private const float CoalThreshold = 0.85f;
-        private const int CoalMinHeight = 5;
-        private const int CoalMaxHeight = 95;
+        private const float COAL_THRESHOLD = 0.85f;
+        private const int COAL_MIN_HEIGHT = 5;
+        private const int COAL_MAX_HEIGHT = 95;
 
-        private const float IronThreshold = 0.88f;
-        private const int IronMinHeight = 5;
-        private const int IronMaxHeight = 70;
+        private const float IRON_THRESHOLD = 0.88f;
+        private const int IRON_MIN_HEIGHT = 5;
+        private const int IRON_MAX_HEIGHT = 70;
 
-        private const float GoldThreshold = 0.92f;
-        private const int GoldMinHeight = 5;
-        private const int GoldMaxHeight = 35;
+        private const float GOLD_THRESHOLD = 0.92f;
+        private const int GOLD_MIN_HEIGHT = 5;
+        private const int GOLD_MAX_HEIGHT = 35;
 
-        private const float DiamondThreshold = 0.95f;
-        private const int DiamondMinHeight = 5;
-        private const int DiamondMaxHeight = 20;
+        private const float DIAMOND_THRESHOLD = 0.95f;
+        private const int DIAMOND_MIN_HEIGHT = 5;
+        private const int DIAMOND_MAX_HEIGHT = 20;
 
         public enum BiomeType
         {
@@ -49,46 +45,46 @@ namespace VoxelGame.World
 
         public TerrainGenerator()
         {
-            _heightNoise = new Noise();
-            _heightNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _heightNoise.SetFrequency(0.01f);
+            _mHeightNoise = new Noise();
+            _mHeightNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mHeightNoise.SetFrequency(0.01f);
 
-            _caveNoise = new Noise();
-            _caveNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _caveNoise.SetFrequency(0.03f);
+            _mCaveNoise = new Noise();
+            _mCaveNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mCaveNoise.SetFrequency(0.03f);
 
-            _biomeNoise = new Noise();
+            _mBiomeNoise = new Noise();
 
-            _coalNoise = new Noise();
-            _coalNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _coalNoise.SetFrequency(0.08f);
+            _mCoalNoise = new Noise();
+            _mCoalNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mCoalNoise.SetFrequency(0.08f);
 
-            _ironNoise = new Noise();
-            _ironNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _ironNoise.SetFrequency(0.06f);
+            _mIronNoise = new Noise();
+            _mIronNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mIronNoise.SetFrequency(0.06f);
 
-            _goldNoise = new Noise();
-            _goldNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _goldNoise.SetFrequency(0.05f);
+            _mGoldNoise = new Noise();
+            _mGoldNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mGoldNoise.SetFrequency(0.05f);
 
-            _diamondNoise = new Noise();
-            _diamondNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _diamondNoise.SetFrequency(0.04f);
+            _mDiamondNoise = new Noise();
+            _mDiamondNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mDiamondNoise.SetFrequency(0.04f);
 
-            _treeGenerator = new TreeGenerator();
+            _mTreeGenerator = new TreeGenerator();
         }
 
         public void init(int seed)
         {
-            _heightNoise.SetSeed(seed);
-            _caveNoise.SetSeed(seed);
-            _treeGenerator.SetSeed(seed);
-            _biomeNoise.SetSeed(seed);
+            _mHeightNoise.SetSeed(seed);
+            _mCaveNoise.SetSeed(seed);
+            _mTreeGenerator.SetSeed(seed);
+            _mBiomeNoise.SetSeed(seed);
 
-            _coalNoise.SetSeed(seed + 1);
-            _ironNoise.SetSeed(seed + 2);
-            _goldNoise.SetSeed(seed + 3);
-            _diamondNoise.SetSeed(seed + 4);
+            _mCoalNoise.SetSeed(seed + 1);
+            _mIronNoise.SetSeed(seed + 2);
+            _mGoldNoise.SetSeed(seed + 3);
+            _mDiamondNoise.SetSeed(seed + 4);
         }
 
         public void GenerateTerrain(Chunk chunk)
@@ -100,8 +96,8 @@ namespace VoxelGame.World
                     var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
                     var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
 
-                    var height = (int)(_heightNoise.GetNoise(worldX, worldZ) * 8 + 100);
-                    float biomeNoise = _biomeNoise.GetNoise(worldX, worldZ);
+                    var height = (int)(_mHeightNoise.GetNoise(worldX, worldZ) * 8 + 100);
+                    float biomeNoise = _mBiomeNoise.GetNoise(worldX, worldZ);
                     biomeNoise = (biomeNoise + 1f) / 2f;
 
                     BiomeType biome = GetBiome(biomeNoise);
@@ -116,8 +112,8 @@ namespace VoxelGame.World
                         }
                         else
                         {
-                            var caveValue = _caveNoise.GetNoise(worldX, y * 2, worldZ);
-                            if (caveValue > CaveThreshold && y >= MinCaveDepth)
+                            var caveValue = _mCaveNoise.GetNoise(worldX, y * 2, worldZ);
+                            if (caveValue > CAVE_THRESHOLD && y >= MIN_CAVE_DEPTH)
                             {
                                 blockType = BlockIDs.Air;
                             }
@@ -136,46 +132,46 @@ namespace VoxelGame.World
                 }
             }
 
-            _treeGenerator.GenerateTrees(chunk);
+            _mTreeGenerator.GenerateTrees(chunk);
         }
 
         private byte genOre(int worldX, int y, int worldZ, byte defaultBlock)
         {
             // Diamond
-            if (y >= DiamondMinHeight && y <= DiamondMaxHeight)
+            if (y >= DIAMOND_MIN_HEIGHT && y <= DIAMOND_MAX_HEIGHT)
             {
-                float diamondValue = _diamondNoise.GetNoise(worldX, y, worldZ);
-                if (diamondValue > DiamondThreshold)
+                float diamondValue = _mDiamondNoise.GetNoise(worldX, y, worldZ);
+                if (diamondValue > DIAMOND_THRESHOLD)
                 {
                     return BlockIDs.DiamondOre;
                 }
             }
 
             // Gold
-            if (y >= GoldMinHeight && y <= GoldMaxHeight)
+            if (y >= GOLD_MIN_HEIGHT && y <= GOLD_MAX_HEIGHT)
             {
-                float goldValue = _goldNoise.GetNoise(worldX, y, worldZ);
-                if (goldValue > GoldThreshold)
+                float goldValue = _mGoldNoise.GetNoise(worldX, y, worldZ);
+                if (goldValue > GOLD_THRESHOLD)
                 {
                     return BlockIDs.GoldOre;
                 }
             }
 
             // Iron
-            if (y >= IronMinHeight && y <= IronMaxHeight)
+            if (y >= IRON_MIN_HEIGHT && y <= IRON_MAX_HEIGHT)
             {
-                float ironValue = _ironNoise.GetNoise(worldX, y, worldZ);
-                if (ironValue > IronThreshold)
+                float ironValue = _mIronNoise.GetNoise(worldX, y, worldZ);
+                if (ironValue > IRON_THRESHOLD)
                 {
                     return BlockIDs.IronOre;
                 }
             }
 
             // Coal
-            if (y >= CoalMinHeight && y <= CoalMaxHeight)
+            if (y >= COAL_MIN_HEIGHT && y <= COAL_MAX_HEIGHT)
             {
-                float coalValue = _coalNoise.GetNoise(worldX, y, worldZ);
-                if (coalValue > CoalThreshold)
+                float coalValue = _mCoalNoise.GetNoise(worldX, y, worldZ);
+                if (coalValue > COAL_THRESHOLD)
                 {
                     return BlockIDs.CoalOre;
                 }
@@ -190,7 +186,7 @@ namespace VoxelGame.World
             {
                 case BiomeType.Desert:
                     if (y < height - 1)
-                        return BlockIDs.Sand;
+                        return BlockIDs.Stone;
                     else if (y < height)
                         return BlockIDs.Sand;
                     break;
@@ -222,14 +218,14 @@ namespace VoxelGame.World
 
         public void Dispose()
         {
-            _heightNoise?.Dispose();
-            _caveNoise?.Dispose();
-            _biomeNoise?.Dispose();
-            _coalNoise?.Dispose();
-            _ironNoise?.Dispose();
-            _goldNoise?.Dispose();
-            _diamondNoise?.Dispose();
-            _treeGenerator?.Dispose();
+            _mHeightNoise?.Dispose();
+            _mCaveNoise?.Dispose();
+            _mBiomeNoise?.Dispose();
+            _mCoalNoise?.Dispose();
+            _mIronNoise?.Dispose();
+            _mGoldNoise?.Dispose();
+            _mDiamondNoise?.Dispose();
+            _mTreeGenerator?.Dispose();
         }
     }
 }

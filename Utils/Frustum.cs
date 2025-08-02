@@ -1,4 +1,5 @@
-﻿using OpenTK.Mathematics;
+﻿// Frustum culling class, I think it works. Again not 100% of what it is doing, had to look up an algorithm. | DA | 8/1/25
+using OpenTK.Mathematics;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,20 +10,20 @@ namespace VoxelGame.Utils
 {
     public class Frustum
     {
-        private Plane[] planes = new Plane[6];
+        private Plane[] mPlanes = new Plane[6];
 
         public void UpdateFromCamera(Vector3 cameraPosition, Vector3 cameraFront, Vector3 cameraUp, float fov, float aspectRatio, float near, float far)
         {
             Matrix4 view = Matrix4.LookAt(cameraPosition, cameraPosition + cameraFront, cameraUp);
             Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(fov), aspectRatio, near, far);
             Matrix4 viewProjection = view * projection;
-            ExtractPlanes(viewProjection);
+            getPlanes(viewProjection);
         }
 
-        private void ExtractPlanes(Matrix4 m)
+        private void getPlanes(Matrix4 m)
         {
             // Left plane
-            planes[0] = new Plane(
+            mPlanes[0] = new Plane(
                 m.M14 + m.M11,
                 m.M24 + m.M21,
                 m.M34 + m.M31,
@@ -30,7 +31,7 @@ namespace VoxelGame.Utils
             );
 
             // Right plane
-            planes[1] = new Plane(
+            mPlanes[1] = new Plane(
                 m.M14 - m.M11,
                 m.M24 - m.M21,
                 m.M34 - m.M31,
@@ -38,7 +39,7 @@ namespace VoxelGame.Utils
             );
 
             // Bottom plane
-            planes[2] = new Plane(
+            mPlanes[2] = new Plane(
                 m.M14 + m.M12,
                 m.M24 + m.M22,
                 m.M34 + m.M32,
@@ -46,7 +47,7 @@ namespace VoxelGame.Utils
             );
 
             // Top plane
-            planes[3] = new Plane(
+            mPlanes[3] = new Plane(
                 m.M14 - m.M12,
                 m.M24 - m.M22,
                 m.M34 - m.M32,
@@ -54,7 +55,7 @@ namespace VoxelGame.Utils
             );
 
             // Near plane
-            planes[4] = new Plane(
+            mPlanes[4] = new Plane(
                 m.M14 + m.M13,
                 m.M24 + m.M23,
                 m.M34 + m.M33,
@@ -62,7 +63,7 @@ namespace VoxelGame.Utils
             );
 
             // Far plane
-            planes[5] = new Plane(
+            mPlanes[5] = new Plane(
                 m.M14 - m.M13,
                 m.M24 - m.M23,
                 m.M34 - m.M33,
@@ -72,7 +73,7 @@ namespace VoxelGame.Utils
             // Normalize all planes
             for (int i = 0; i < 6; i++)
             {
-                planes[i].Normalize();
+                mPlanes[i].Normalize();
             }
         }
 
@@ -80,7 +81,7 @@ namespace VoxelGame.Utils
         {
             for (int i = 0; i < 6; i++)
             {
-                Plane plane = planes[i];
+                Plane plane = mPlanes[i];
                 Vector3 p = min;
 
                 if (plane.Normal.X >= 0) p.X = max.X;

@@ -1,4 +1,5 @@
-﻿using OpenTK.Mathematics;
+﻿// Main terrain modification script. Allows the player to break and place blocks in chunks. When that is done it tells the chunks to regen | DA | 8/1/25
+using OpenTK.Mathematics;
 using System;
 using VoxelGame.Utils;
 using VoxelGame.World;
@@ -7,21 +8,21 @@ namespace VoxelGame.PlayerScripts
 {
     public class TerrainModifier
     {
-        private ChunkManager chunkManager;
-        private byte currentBlock = BlockIDs.Stone;
-        private float reach = 5.0f;
+        private ChunkManager mChunkManager;
 
-        public float Reach { get => reach; set => reach = value; }
-        public byte CurrentBlock { get => currentBlock; set => currentBlock = value; }
+        private byte mCurrentBlock = BlockIDs.Stone;
+        private float mReach = 5.0f;
+
+        public byte CurrentBlock { get => mCurrentBlock; set => mCurrentBlock = value; }
 
         public TerrainModifier(ChunkManager chunkManager)
         {
-            this.chunkManager = chunkManager;
+            this.mChunkManager = chunkManager;
         }
 
         public bool BreakBlock(Vector3 playerPos, Vector3 lookDirection)
         {
-            var hit = RaycastDDA(playerPos, lookDirection);
+            var hit = raycastDDA(playerPos, lookDirection);
             if (hit.HasValue)
             {
                 return SetBlock(hit.Value.blockPos, BlockIDs.Air, true);
@@ -31,7 +32,7 @@ namespace VoxelGame.PlayerScripts
 
         public bool PlaceBlock(Vector3 playerPos, Vector3 lookDirection)
         {
-            var hit = RaycastDDA(playerPos, lookDirection);
+            var hit = raycastDDA(playerPos, lookDirection);
             if (hit.HasValue)
             {
                 Vector3i hitPos = hit.Value.blockPos;
@@ -50,24 +51,17 @@ namespace VoxelGame.PlayerScripts
                         return false;
                     }
 
-                    if (BlockRegistry.GetBlock(currentBlock).GravityBlock)
-                    {
-                        Vector3i newPos = calcGravityBlockLandingPos(placePos);
-                        return SetBlock(newPos, currentBlock);
-                    }
-
-                    return SetBlock(placePos, currentBlock);
+                    return SetBlock(placePos, mCurrentBlock);
                 }
             }
             return false;
         }
 
-        // Improved DDA raycast with better edge case handling
-        private (Vector3i blockPos, Vector3i normal)? RaycastDDA(Vector3 origin, Vector3 direction)
+        // New raycast using DDA. Not sure what all the math does, had to look it up.
+        private (Vector3i blockPos, Vector3i normal)? raycastDDA(Vector3 origin, Vector3 direction)
         {
             direction = Vector3.Normalize(direction);
 
-            // Add small offset to origin to avoid edge cases
             Vector3 pos = origin + direction * 0.001f;
 
             Vector3i mapPos = new Vector3i(
@@ -76,7 +70,6 @@ namespace VoxelGame.PlayerScripts
                 (int)Math.Floor(pos.Z)
             );
 
-            // Handle edge case where direction component is very small
             Vector3 deltaDist = new Vector3(
                 Math.Abs(direction.X) < 1e-6f ? 1e6f : Math.Abs(1.0f / direction.X),
                 Math.Abs(direction.Y) < 1e-6f ? 1e6f : Math.Abs(1.0f / direction.Y),
@@ -126,7 +119,7 @@ namespace VoxelGame.PlayerScripts
             int side = 0;
             float distance = 0;
 
-            while (!hit && distance < reach)
+            while (!hit && distance < mReach)
             {
                 if (sideDist.X < sideDist.Y && sideDist.X < sideDist.Z)
                 {
@@ -159,30 +152,18 @@ namespace VoxelGame.PlayerScripts
             Vector3i normal = new Vector3i();
             switch (side)
             {
-                case 0: normal.X = -step.X; break;
-                case 1: normal.Y = -step.Y; break;
-                case 2: normal.Z = -step.Z; break;
+                case 0: 
+                    normal.X = -step.X; 
+                    break;
+                case 1: 
+                    normal.Y = -step.Y; 
+                    break;
+                case 2: 
+                    normal.Z = -step.Z; 
+                    break;
             }
 
             return (mapPos, normal);
-        }
-
-        private Vector3i calcGravityBlockLandingPos(Vector3i startPos)
-        {
-            Vector3i currentPos = startPos;
-
-            for (int y = startPos.Y; y >= 0; y--)
-            {
-                currentPos.Y = y;
-                byte currentBlock = GetBlock(currentPos);
-
-                if (currentBlock == BlockIDs.Air)
-                    continue;
-
-                return new Vector3i(startPos.X, y + 1, startPos.Z);
-            }
-
-            return new Vector3i(startPos.X, 0, startPos.Z);
         }
 
         public bool SetBlock(Vector3i worldPos, byte blockType, bool breakingBlock = false)
@@ -195,7 +176,7 @@ namespace VoxelGame.PlayerScripts
                 (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
             );
 
-            Chunk chunk = chunkManager.GetChunk(chunkPos);
+            Chunk chunk = mChunkManager.GetChunk(chunkPos);
             if (chunk == null)
                 return false;
 
@@ -216,7 +197,7 @@ namespace VoxelGame.PlayerScripts
 
             if (breakingBlock)
             {
-                VoxelGame.init.audioManager.PlayBlockBreakSound(BlockRegistry.GetBlock(chunk.Voxels[localPos.X, localPos.Y, localPos.Z]).Material);
+                VoxelGame.init.WorldAudioManager.PlayBlockBreakSound(BlockRegistry.GetBlock(chunk.Voxels[localPos.X, localPos.Y, localPos.Z]).Material);
             }
 
             chunk.Voxels[localPos.X, localPos.Y, localPos.Z] = blockType;
@@ -233,7 +214,7 @@ namespace VoxelGame.PlayerScripts
             if (localPos.Z == Constants.CHUNK_SIZE - 1)
                 chunksToUpdate.Add(new ChunkPos(chunkPos.X, chunkPos.Z + 1));
 
-            chunkManager.MarkChunksForUpdate(chunksToUpdate);
+            mChunkManager.MarkChunksForUpdate(chunksToUpdate);
             chunk.Modified = true;
 
             return true;
@@ -249,7 +230,7 @@ namespace VoxelGame.PlayerScripts
                 (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
             );
 
-            Chunk chunk = chunkManager.GetChunk(chunkPos);
+            Chunk chunk = mChunkManager.GetChunk(chunkPos);
             if (chunk == null)
                 return BlockIDs.Air;
 
@@ -283,15 +264,15 @@ namespace VoxelGame.PlayerScripts
 
         public void SetCurrentBlockByNum(int blockPos)
         {
-            VoxelGame.init._hotbar.SetHotbarSlot(blockPos);
-            currentBlock = (byte)VoxelGame.init._hotbar.GetSelectedBlock().ID;
-            VoxelGame.init.UIText = $"Current Block: {BlockRegistry.GetBlock(currentBlock).Name}";
+            VoxelGame.init.UI_Hotbar.SetHotbarSlot(blockPos);
+            mCurrentBlock = (byte)VoxelGame.init.UI_Hotbar.GetSelectedBlock().ID;
+            VoxelGame.init.UIText = $"Current Block: {BlockRegistry.GetBlock(mCurrentBlock).Name}";
         }
 
         public void SetCurrentBlock(int modifier)
         {
-            currentBlock = (byte)VoxelGame.init._hotbar.MoveHotbarSlot((modifier));
-            VoxelGame.init.UIText = $"Current Block: {BlockRegistry.GetBlock(currentBlock).Name}";
+            mCurrentBlock = (byte)VoxelGame.init.UI_Hotbar.MoveHotbarSlot((modifier));
+            VoxelGame.init.UIText = $"Current Block: {BlockRegistry.GetBlock(mCurrentBlock).Name}";
         }
     }
 }

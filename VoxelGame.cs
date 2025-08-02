@@ -1,9 +1,9 @@
-﻿using OpenTK.Graphics.OpenGL4;
+﻿// Main game class, has stuff related to updating the game. Makes and destroys game components and has stuff related to game flow. | DA | 8/1/25
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
-using ImGuiNET;
 
 using VoxelGame.Audio;
 using VoxelGame.PlayerScripts;
@@ -19,53 +19,68 @@ namespace VoxelGame
     {
         public static VoxelGame init;
 
-        private int memoryCheckCounter = 0;
-        private long lastMemoryUsage = 0;
+        // Memory stuff
+        private int mMemoryCheckCounter = 0;
+        private long mLastMemoryUsage = 0;
+
         private const int MEMORY_CHECK_INTERVAL = 3600;
         private const int FORCE_GC_INTERVAL = 18000;
+        // ---------
 
-        private Shader? shaderProgram;
-        private Texture? WorldTexture;
+        // Components
+        private Shader? mShaderProgram;
+        private Texture? mWorldTexture;
 
-        public ChunkManager chunkManager;
-        private Player player;
-        private BlockHighlighter blockHighlighter;
-        private TerrainGenerator terrainGen;
+        private Player mPlayer;
+        private BlockHighlighter mBlockHighlighter;
+        private TerrainGenerator mTerrainGen;
 
-        private ImGuiController _imGuiController;
+        public ChunkManager _ChunkManager;
+        public AudioManager WorldAudioManager;
+        // ---------
 
-        public TitleScreen _titleScreen;
-        private GameUI _gameUi;
-        public PauseMenu _pauseMenu;
-        public Inventory _inventory;
-        public Hotbar _hotbar;
+        // UI
+        private ImGuiController mImGuiController;
+        private GameUI mUI_Game;
 
-        private bool DEVELOPMENT_MODE = true;
-
-        private GameState _currentState;
-        private string _currentWorldName;
-
-        private int frameCounter = 0;
-        private double fpsUpdateTimer = 0.0;
-
-        public AudioManager audioManager;
-
-        private bool wireframeMode = false;
-        private Matrix4 _projection;
+        public TitleScreen UI_TitleScreen;
+        public PauseMenu UI_PauseMenu;
+        public Inventory UI_Inventory;
+        public Hotbar UI_Hotbar;
 
         public string UIText = "Current Block: Stone";
+        // ---------
+
+        // World
+        private GameState mCurrentState;
+        private string mCurrentWorldName;
+        private WorldSaveData mCurrentWorldData;
 
         public int WorldSeed = 0;
+        public Vector2i CurrentChunkPosition = Vector2i.Zero;
+        // ---------
 
-        public Vector2i currentChunkPosition = Vector2i.Zero;
+        // FPS Stuff
+        private int mFrameCounter = 0;
+        private double mFpsUpdateTimer = 0.0;
+        // ---------
 
-        public TerrainGenerator TerrainGen { get => terrainGen; }
+        // Debug
+        private bool mWireframeMode = false;
+        private bool mDevMode = true;
+        // ---------
+
+        // Other
+        private Matrix4 mProjection;
+        // ---------
+
+        public TerrainGenerator TerrainGen { get => mTerrainGen; }
 
         public VoxelGame(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings)
             : base(gameWindowSettings, nativeWindowSettings)
         {
             init = this;
-            _currentState = GameState.TitleScreen;
+            mCurrentState = GameState.TitleScreen;
         }
 
         protected override void OnLoad()
@@ -77,141 +92,145 @@ namespace VoxelGame
             GL.Enable(EnableCap.CullFace);
             GL.CullFace(CullFaceMode.Back);
 
-            _imGuiController = new ImGuiController(Size.X, Size.Y);
-            audioManager = new AudioManager();
-            _titleScreen = new TitleScreen();
+            mImGuiController = new ImGuiController(ClientSize.X, ClientSize.Y);
+            WorldAudioManager = new AudioManager();
+            UI_TitleScreen = new TitleScreen();
 
-            _titleScreen.OnStartGame += StartGame;
-            _titleScreen.OnTitleQuitGame += () => Close();
+            UI_TitleScreen.OnStartGame += startGame;
+            UI_TitleScreen.OnTitleQuitGame += () => Close();
 
-            _projection = Matrix4.CreateOrthographicOffCenter(0, Size.X, 0, Size.Y, -1, 1);
+            mProjection = Matrix4.CreateOrthographicOffCenter(0, Size.X, 0, Size.Y, -1, 1);
 
             CursorState = CursorState.Normal;
         }
 
-        private void StartGame(string worldName)
+        private void startGame(string worldName)
         {
-            _currentWorldName = worldName;
-            _currentState = GameState.InGame;
+            mCurrentWorldName = worldName;
+            mCurrentState = GameState.InGame;
 
-            terrainGen = new TerrainGenerator();
-            Serialization.WorldName = worldName;
+            mTerrainGen = new TerrainGenerator();
+            Serialization.s_WorldName = worldName;
 
-            string path = Constants.SAVE_LOCATION + "/" + worldName + "/";
-            try
+            var existingWorld = Serialization.LoadWorldData(worldName);
+            if (existingWorld.HasValue)
             {
-                WorldSeed = Serialization.readSead(path);
+                mCurrentWorldData = existingWorld.Value;
+                WorldSeed = mCurrentWorldData.Seed;
             }
-            catch
+            else
             {
-                WorldSeed = Serialization.writeSeed(path, worldName);
+                mCurrentWorldData = Serialization.CreateWorld(worldName);
+                WorldSeed = mCurrentWorldData.Seed;
             }
-            terrainGen.init(WorldSeed);
 
-            chunkManager = new ChunkManager();
+            mTerrainGen.init(WorldSeed);
 
-            shaderProgram = new Shader("Shaders/world_shader.vert", "Shaders/world_shader.frag");
-            WorldTexture = Texture.LoadFromFile("Resources/world.png");
-            WorldTexture.Use(TextureUnit.Texture0);
+            _ChunkManager = new ChunkManager();
 
-            _gameUi = new GameUI();
-            blockHighlighter = new BlockHighlighter();
+            mShaderProgram = new Shader("Shaders/world_shader.vert", "Shaders/world_shader.frag");
+            mWorldTexture = Texture.LoadFromFile("Resources/world.png");
+            mWorldTexture.Use(TextureUnit.Texture0);
 
-            _pauseMenu = new PauseMenu();
-            _hotbar = new Hotbar(WorldTexture);
-            _inventory = new Inventory(WorldTexture);
+            mUI_Game = new GameUI();
+            mBlockHighlighter = new BlockHighlighter();
 
-            _pauseMenu.OnPauseQuitGame += () => CloseGame();
-            _pauseMenu.OnResumeGame += () => ResumeGame();
+            UI_PauseMenu = new PauseMenu();
+            UI_Hotbar = new Hotbar(mWorldTexture);
+            UI_Inventory = new Inventory(mWorldTexture);
+
+            UI_PauseMenu.OnPauseQuitGame += () => QuitToMainMenu();
+            UI_PauseMenu.OnResumeGame += () => ResumeGame();
 
             setupHotbarBlocks();
 
-            player = new Player(chunkManager, Size);
+            mPlayer = new Player(_ChunkManager, Size);
 
             GL.ClearColor(0.5f, 0.8f, 1.0f, 1.0f);
 
             CursorState = CursorState.Grabbed;
         }
 
+        // TODO: refactor this code, a little spaghetti
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
-            _imGuiController.Update(this, (float)args.Time);
+            mImGuiController.Update(this, (float)args.Time);
 
-            if (DEVELOPMENT_MODE)
+            if (mDevMode)
             {
-                frameCounter++;
-                fpsUpdateTimer += args.Time;
-                memoryCheckCounter++;
+                mFrameCounter++;
+                mFpsUpdateTimer += args.Time;
+                mMemoryCheckCounter++;
 
-                if (fpsUpdateTimer >= 1.0)
+                if (mFpsUpdateTimer >= 1.0)
                 {
                     long currentMemory = GC.GetTotalMemory(false) / 1024 / 1024; // MB
-                    long memoryDelta = currentMemory - lastMemoryUsage;
+                    long memoryDelta = currentMemory - mLastMemoryUsage;
 
-                    Title = $"DuncanCraft 2000 - FPS: {frameCounter} | RAM: {currentMemory}MB ({memoryDelta:+#;-#;0}MB)";
+                    Title = $"DuncanCraft 2000 - FPS: {mFrameCounter} | RAM: {currentMemory}MB ({memoryDelta:+#;-#;0}MB)";
 
-                    frameCounter = 0;
-                    fpsUpdateTimer = 0.0;
-                    lastMemoryUsage = currentMemory;
+                    mFrameCounter = 0;
+                    mFpsUpdateTimer = 0.0;
+                    mLastMemoryUsage = currentMemory;
                 }
 
                 // Garbage collection
-                if (memoryCheckCounter % MEMORY_CHECK_INTERVAL == 0)
+                if (mMemoryCheckCounter % MEMORY_CHECK_INTERVAL == 0)
                 {
                     long currentMemory = GC.GetTotalMemory(false);
 
                     if (currentMemory > 500 * 1024 * 1024 ||
-                        memoryCheckCounter % FORCE_GC_INTERVAL == 0)
+                        mMemoryCheckCounter % FORCE_GC_INTERVAL == 0)
                     {
                         GC.Collect(0, GCCollectionMode.Optimized);
                         Console.WriteLine($"Forced GC: {currentMemory / 1024 / 1024}MB -> {GC.GetTotalMemory(false) / 1024 / 1024}MB");
                     }
                 }
 
-                if (memoryCheckCounter >= FORCE_GC_INTERVAL)
+                if (mMemoryCheckCounter >= FORCE_GC_INTERVAL)
                 {
-                    memoryCheckCounter = 0;
+                    mMemoryCheckCounter = 0;
                 }
             }
 
-            if (_currentState == GameState.TitleScreen)
+            if (mCurrentState == GameState.TitleScreen)
             {
                 if (KeyboardState.IsKeyDown(Keys.Escape))
                     Close();
             }
-            else if (_currentState == GameState.InGame || _currentState == GameState.Inventory || _currentState == GameState.Pause)
+            else if (mCurrentState == GameState.InGame || mCurrentState == GameState.Inventory || mCurrentState == GameState.Pause)
             {
                 if (KeyboardState.IsKeyPressed(Keys.Escape))
                 {
-                    if (_currentState == GameState.Pause || _currentState == GameState.Inventory)
+                    if (mCurrentState == GameState.Pause || mCurrentState == GameState.Inventory)
                         ResumeGame();
                     else
                     {
                         CursorState = CursorState.Normal;
-                        _currentState = GameState.Pause;
-                        player.inputManager.OnGamePaused();
+                        mCurrentState = GameState.Pause;
+                        mPlayer._InputManager.OnGamePaused();
                         return;
                     }
                 }
 
-                if (KeyboardState.IsKeyPressed(Keys.I) && _currentState != GameState.Pause)
+                if (KeyboardState.IsKeyPressed(Keys.I) && mCurrentState != GameState.Pause)
                 {
-                    if (_currentState == GameState.Inventory)
+                    if (mCurrentState == GameState.Inventory)
                         ResumeGame();
                     else
                     {
                         CursorState = CursorState.Normal;
-                        _currentState = GameState.Inventory;
-                        player.inputManager.OnGamePaused();
+                        mCurrentState = GameState.Inventory;
+                        mPlayer._InputManager.OnGamePaused();
                         return;
                     }
                 }
 
                 if (KeyboardState.IsKeyPressed(Keys.X))
                 {
-                    wireframeMode = !wireframeMode;
-                    if (wireframeMode)
+                    mWireframeMode = !mWireframeMode;
+                    if (mWireframeMode)
                     {
                         GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
                     }
@@ -223,14 +242,14 @@ namespace VoxelGame
 
                 float deltaTime = (float)args.Time;
 
-                blockHighlighter.Update(player._Camera, chunkManager);
+                mBlockHighlighter.Update(mPlayer._Camera, _ChunkManager);
 
-                player.inputManager.KeyboardUpdate(KeyboardState, args);
-                chunkManager.UpdateChunks(player._Camera.Position);
-                chunkManager.UploadPendingMeshes();
+                mPlayer._InputManager.KeyboardUpdate(KeyboardState, args);
+                _ChunkManager.UpdateChunks(mPlayer._Camera.Position);
+                _ChunkManager.UploadPendingMeshes();
 
-                if (_currentState == GameState.InGame)
-                    player.Update(deltaTime);
+                if (mCurrentState == GameState.InGame)
+                    mPlayer.Update(deltaTime);
             }
         }
 
@@ -238,9 +257,9 @@ namespace VoxelGame
         {
             base.OnMouseMove(e);
 
-            if (_currentState == GameState.InGame && player != null)
+            if (mCurrentState == GameState.InGame && mPlayer != null)
             {
-                player.inputManager.MouseUpdate(MouseState);
+                mPlayer._InputManager.MouseUpdate(MouseState);
             }
         }
 
@@ -248,9 +267,9 @@ namespace VoxelGame
         {
             base.OnMouseDown(e);
 
-            if (_currentState == GameState.InGame && player != null)
+            if (mCurrentState == GameState.InGame && mPlayer != null)
             {
-                player.inputManager.HandleMouseDown(e);
+                mPlayer._InputManager.HandleMouseDown(e);
             }
         }
 
@@ -258,11 +277,11 @@ namespace VoxelGame
         {
             base.OnMouseWheel(e);
 
-            _imGuiController.MouseScroll(new Vector2(e.OffsetX, e.OffsetY));
+            mImGuiController.MouseScroll(new Vector2(e.OffsetX, e.OffsetY));
 
-            if (_currentState == GameState.InGame || _currentState == GameState.Inventory && player != null)
+            if (mCurrentState == GameState.InGame || mCurrentState == GameState.Inventory && mPlayer != null)
             {
-                player.inputManager.HandleMouseScroll(e);
+                mPlayer._InputManager.HandleMouseScroll(e);
             }
         }
 
@@ -270,7 +289,7 @@ namespace VoxelGame
         {
             base.OnTextInput(e);
 
-            _imGuiController.PressChar((char)e.Unicode);
+            mImGuiController.PressChar((char)e.Unicode);
         }
 
         protected override void OnRenderFrame(FrameEventArgs args)
@@ -279,56 +298,56 @@ namespace VoxelGame
 
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-            if (_currentState == GameState.TitleScreen)
+            if (mCurrentState == GameState.TitleScreen)
             {
-                _titleScreen.Render();
-                _imGuiController.Render();
+                UI_TitleScreen.Render();
+                mImGuiController.Render();
             }
-            else if (_currentState == GameState.InGame || _currentState == GameState.Pause || _currentState == GameState.Inventory)
+            else if (mCurrentState == GameState.InGame || mCurrentState == GameState.Pause || mCurrentState == GameState.Inventory)
             {
-                WorldTexture?.Use(TextureUnit.Texture0);
-                shaderProgram?.Use();
+                mWorldTexture?.Use(TextureUnit.Texture0);
+                mShaderProgram?.Use();
 
                 Matrix4 model = Matrix4.Identity;
-                Matrix4 view = player._Camera.GetViewMatrix();
-                Matrix4 projection = player._Camera.GetProjectionMatrix();
+                Matrix4 view = mPlayer._Camera.GetViewMatrix();
+                Matrix4 projection = mPlayer._Camera.GetProjectionMatrix();
 
-                int modelLoc = GL.GetUniformLocation(shaderProgram.Handle, "model");
-                int viewLoc = GL.GetUniformLocation(shaderProgram.Handle, "view");
-                int projLoc = GL.GetUniformLocation(shaderProgram.Handle, "projection");
-                int lightDirLoc = GL.GetUniformLocation(shaderProgram.Handle, "lightDir");
-                int viewPosLoc = GL.GetUniformLocation(shaderProgram.Handle, "viewPos");
+                int modelLoc = GL.GetUniformLocation(mShaderProgram.Handle, "model");
+                int viewLoc = GL.GetUniformLocation(mShaderProgram.Handle, "view");
+                int projLoc = GL.GetUniformLocation(mShaderProgram.Handle, "projection");
+                int lightDirLoc = GL.GetUniformLocation(mShaderProgram.Handle, "lightDir");
+                int viewPosLoc = GL.GetUniformLocation(mShaderProgram.Handle, "viewPos");
 
                 GL.UniformMatrix4(modelLoc, false, ref model);
                 GL.UniformMatrix4(viewLoc, false, ref view);
                 GL.UniformMatrix4(projLoc, false, ref projection);
                 GL.Uniform3(lightDirLoc, new Vector3(0.2f, -1.0f, 0.3f));
-                GL.Uniform3(viewPosLoc, player._Camera.Position);
+                GL.Uniform3(viewPosLoc, mPlayer._Camera.Position);
 
-                chunkManager.RenderChunks(player._Camera.Position, player._Camera.Front, player._Camera.Up, player._Camera.Fov, player._Camera.AspectRatio);
+                _ChunkManager.RenderChunks(mPlayer._Camera.Position, mPlayer._Camera.Front, mPlayer._Camera.Up, mPlayer._Camera.Fov, mPlayer._Camera.AspectRatio);
 
-                blockHighlighter.Render(view, projection);
+                mBlockHighlighter.Render(view, projection);
 
-                if (_currentState == GameState.Pause)
+                if (mCurrentState == GameState.Pause)
                 {
-                    _pauseMenu.Render();
+                    UI_PauseMenu.Render();
                 }
-                else if (_currentState == GameState.Inventory)
+                else if (mCurrentState == GameState.Inventory)
                 {
-                    _inventory.Render();
-                }
-
-                if (_gameUi != null)
-                {
-                    _gameUi.Render($"World: {_currentWorldName} | {UIText} | {currentChunkPosition}");
+                    UI_Inventory.Render();
                 }
 
-                if (_hotbar != null)
+                if (mUI_Game != null)
                 {
-                    _hotbar.Render(_projection, Size);
+                    mUI_Game.Render($"World: {mCurrentWorldName} | {UIText} | {CurrentChunkPosition}");
                 }
 
-                _imGuiController.Render();
+                if (UI_Hotbar != null)
+                {
+                    UI_Hotbar.Render(mProjection, Size);
+                }
+
+                mImGuiController.Render();
             }
 
             SwapBuffers();
@@ -337,52 +356,38 @@ namespace VoxelGame
         protected override void OnResize(ResizeEventArgs e)
         {
             base.OnResize(e);
-            GL.Viewport(0, 0, Size.X, Size.Y);
 
-            _projection = Matrix4.CreateOrthographicOffCenter(0, Size.X, 0, Size.Y, -1, 1);
+            GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
 
-            _imGuiController?.WindowResized(e.Width, e.Height);
+            mProjection = Matrix4.CreateOrthographicOffCenter(0, ClientSize.X, 0, ClientSize.Y, -1, 1);
 
-            if (player != null)
+            mImGuiController?.WindowResized(ClientSize.X, ClientSize.Y);
+
+            if (mPlayer != null)
             {
-                player._Camera.AspectRatio = e.Width / (float)e.Height;
+                mPlayer._Camera.AspectRatio = ClientSize.X / (float)ClientSize.Y;
             }
         }
 
         private void setupHotbarBlocks()
         {
-            _hotbar.SetBlockInSlot(0, BlockRegistry.GetBlock(BlockIDs.Stone));
-            _hotbar.SetBlockInSlot(1, BlockRegistry.GetBlock(BlockIDs.Dirt));
-            _hotbar.SetBlockInSlot(2, BlockRegistry.GetBlock(BlockIDs.Grass));
-            _hotbar.SetBlockInSlot(3, BlockRegistry.GetBlock(BlockIDs.Log));
-            _hotbar.SetBlockInSlot(4, BlockRegistry.GetBlock(BlockIDs.Glass));
-            _hotbar.SetBlockInSlot(5, BlockRegistry.GetBlock(BlockIDs.Plank));
-            _hotbar.SetBlockInSlot(6, BlockRegistry.GetBlock(BlockIDs.Leaves));
-            _hotbar.SetBlockInSlot(7, BlockRegistry.GetBlock(BlockIDs.Red));
-            _hotbar.SetBlockInSlot(8, BlockRegistry.GetBlock(BlockIDs.Green));
-            _hotbar.SetBlockInSlot(9, BlockRegistry.GetBlock(BlockIDs.Blue));
+            UI_Hotbar.SetBlockInSlot(0, BlockRegistry.GetBlock(BlockIDs.Stone));
+            UI_Hotbar.SetBlockInSlot(1, BlockRegistry.GetBlock(BlockIDs.Dirt));
+            UI_Hotbar.SetBlockInSlot(2, BlockRegistry.GetBlock(BlockIDs.Grass));
+            UI_Hotbar.SetBlockInSlot(3, BlockRegistry.GetBlock(BlockIDs.Log));
+            UI_Hotbar.SetBlockInSlot(4, BlockRegistry.GetBlock(BlockIDs.Glass));
+            UI_Hotbar.SetBlockInSlot(5, BlockRegistry.GetBlock(BlockIDs.Plank));
+            UI_Hotbar.SetBlockInSlot(6, BlockRegistry.GetBlock(BlockIDs.Leaves));
+            UI_Hotbar.SetBlockInSlot(7, BlockRegistry.GetBlock(BlockIDs.Red));
+            UI_Hotbar.SetBlockInSlot(8, BlockRegistry.GetBlock(BlockIDs.Green));
+            UI_Hotbar.SetBlockInSlot(9, BlockRegistry.GetBlock(BlockIDs.Blue));
         }
 
-        protected override void OnUnload()
+        private void QuitToMainMenu()
         {
-            base.OnUnload();
-
-            // Dispose in correct order - chunk manager first to save chunks
-            chunkManager?.Dispose();
-            shaderProgram?.Dispose();
-            _gameUi?.Dispose();
-            blockHighlighter?.Dispose();
-            _imGuiController?.Dispose();
-            audioManager?.Dispose();
-            terrainGen?.Dispose();
-            WorldTexture?.Dispose();
-        }
-
-        private void CloseGame()
-        {
-            if (chunkManager?._chunks != null)
+            if (_ChunkManager?._Chunks != null)
             {
-                foreach (var activeChunks in chunkManager._chunks)
+                foreach (var activeChunks in _ChunkManager._Chunks)
                 {
                     if (activeChunks.Value.Modified)
                     {
@@ -391,19 +396,70 @@ namespace VoxelGame
                 }
             }
 
-            Close();
+            _ChunkManager?.Dispose();
+            mShaderProgram?.Dispose();
+            mUI_Game?.Dispose();
+            mBlockHighlighter?.Dispose();
+            mTerrainGen?.Dispose();
+            mWorldTexture?.Dispose();
+
+            _ChunkManager = null;
+            mShaderProgram = null;
+            mUI_Game = null;
+            mBlockHighlighter = null;
+            mTerrainGen = null;
+            mWorldTexture = null;
+            mPlayer = null;
+            UI_PauseMenu = null;
+            UI_Hotbar = null;
+            UI_Inventory = null;
+
+            if(UI_TitleScreen == null)
+            {
+                UI_TitleScreen = new TitleScreen();
+                UI_TitleScreen.OnStartGame += startGame;
+                UI_TitleScreen.OnTitleQuitGame += () => Close();
+            }
+
+            UI_TitleScreen.RefreshWorldList();
+
+            mCurrentState = GameState.TitleScreen;
+            CursorState = CursorState.Normal;
+            GL.ClearColor(0.2f, 0.3f, 0.6f, 1.0f);
+        }
+
+        protected override void OnUnload()
+        {
+            base.OnUnload();
+
+            if (mCurrentState != GameState.TitleScreen)
+            {
+                _ChunkManager?.Dispose();
+                mShaderProgram?.Dispose();
+                mUI_Game?.Dispose();
+                mBlockHighlighter?.Dispose();
+                WorldAudioManager?.Dispose();
+                mTerrainGen?.Dispose();
+                mWorldTexture?.Dispose();
+            }
+            else
+            {
+                WorldAudioManager?.Dispose();
+            }
+
+            mImGuiController?.Dispose();
         }
 
         public void ChangeBlockInCurrentSlot(IBlock? block)
         {
-            _hotbar.SetBlockInSlot(block);
-            this.player.terrainModifier.CurrentBlock = (byte)block.ID;
+            UI_Hotbar.SetBlockInSlot(block);
+            this.mPlayer._TerrainModifier.CurrentBlock = (byte)block.ID;
             UIText = $"Current Block: {block.Name}";
         }
 
         private void ResumeGame()
         {
-            _currentState = GameState.InGame;
+            mCurrentState = GameState.InGame;
             CursorState = CursorState.Grabbed;
         }
     }

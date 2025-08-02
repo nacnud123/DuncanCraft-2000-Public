@@ -1,4 +1,5 @@
-﻿using System;
+﻿// An over complex tree generator | DA | 8/1/25
+using System;
 using System.Collections.Generic;
 using OpenTK.Mathematics;
 using VoxelGame.Blocks;
@@ -8,7 +9,8 @@ namespace VoxelGame.World
 {
     public class TreeGenerator : IDisposable
     {
-        private readonly Random _treeRandom = new Random();
+        private readonly Random _mTreeRandom = new Random();
+        private readonly Noise _mTreeNoise = new Noise();
 
         private const float TREE_DENSITY = 0.02f;
         private const int MIN_TREE_SPACING = 8;
@@ -16,19 +18,16 @@ namespace VoxelGame.World
         private const int TREE_HEIGHT_MAX = 8;
         private const int CANOPY_RADIUS = 2;
 
-        private readonly Noise _treeNoise = new Noise();
-
         public TreeGenerator()
         {
-            _treeNoise.SetFrequency(0.05f);
-            _treeNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mTreeNoise.SetFrequency(0.05f);
+            _mTreeNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
         }
 
         public void SetSeed(int seed)
         {
-            _treeNoise.SetSeed(seed);
+            _mTreeNoise.SetSeed(seed);
         }
-
 
         public void GenerateTrees(Chunk chunk)
         {
@@ -41,11 +40,11 @@ namespace VoxelGame.World
                     int worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
                     int worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
                     
-                    float treeNoise = _treeNoise.GetNoise(worldX, worldZ);
+                    float treeNoise = _mTreeNoise.GetNoise(worldX, worldZ);
                     
                     if (treeNoise > 0.6f)
                     {
-                        int groundY = GetGroundLevel(chunk, x, z);
+                        int groundY = getGroundLevel(chunk, x, z);
 
                         if (groundY != -1 && isValidTreeLocation(chunk, x, groundY, z))
                         {
@@ -66,7 +65,7 @@ namespace VoxelGame.World
             }
         }
 
-        private int GetGroundLevel(Chunk chunk, int x, int z)
+        private int getGroundLevel(Chunk chunk, int x, int z)
         {
             for (int y = Constants.CHUNK_HEIGHT - 1; y >= 0; y--)
             {
@@ -119,7 +118,7 @@ namespace VoxelGame.World
 
         private void genTree(Chunk chunk, int baseX, int baseY, int baseZ)
         {
-            int trunkHeight = _treeRandom.Next(TREE_HEIGHT_MIN, TREE_HEIGHT_MAX + 1);
+            int trunkHeight = _mTreeRandom.Next(TREE_HEIGHT_MIN, TREE_HEIGHT_MAX + 1);
             
             genTrunk(chunk, baseX, baseY, baseZ, trunkHeight);
 
@@ -167,7 +166,7 @@ namespace VoxelGame.World
 
         public void Dispose()
         {
-            _treeNoise?.Dispose();
+            _mTreeNoise?.Dispose();
         }
     }
 }

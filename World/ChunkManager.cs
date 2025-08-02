@@ -1,4 +1,5 @@
-﻿using OpenTK.Mathematics;
+﻿// This is the main chunk manager of the game, making sure that new chunks or chunks that have been modified are generated or re-generated. It uses some threading which I am still not 100% on. But it works. | DA | 8/1/2025
+using OpenTK.Mathematics;
 using System.Collections.Concurrent;
 using VoxelGame.Saving;
 using VoxelGame.Utils;
@@ -6,44 +7,61 @@ using VoxelGame.World;
 
 public class ChunkManager : IDisposable
 {
-    public readonly ConcurrentDictionary<ChunkPos, Chunk> _chunks = new();
-    private readonly ConcurrentQueue<ChunkPos> meshGenerationQueue = new();
-    private readonly ConcurrentQueue<ChunkPos> priorityMeshQueue = new();
-    private readonly HashSet<ChunkPos> queuedChunks = new();
-    private readonly object queueLock = new object();
-    private readonly CancellationTokenSource cancellationTokenSource = new();
-    private readonly Task[] meshGenerationTasks; // Multiple worker threads
+    public readonly ConcurrentDictionary<ChunkPos, Chunk> _Chunks = new();
 
-    private readonly HashSet<ChunkPos> chunksNeedingMeshUpdate = new();
-    private readonly object meshUpdateLock = new object();
+    private readonly ConcurrentQueue<ChunkPos> _mCeshGenerationQueue = new();
+    private readonly ConcurrentQueue<ChunkPos> _mPriorityMeshQueue = new();
+    private readonly ConcurrentQueue<ChunkPos> _mTerrainGenerationQueue = new();
 
-    private readonly ConcurrentQueue<List<Vertex>> vertexListPool = new();
-    private readonly ConcurrentQueue<List<uint>> indexListPool = new();
+    private readonly HashSet<ChunkPos> _mQueuedChunks = new();
+    private readonly HashSet<ChunkPos> _mQueuedTerrainChunks = new();
+
+    private readonly object _mQueueLock = new object();
+
+    private readonly CancellationTokenSource _mCancellationTokenSource = new();
+
+    private readonly Task[] _mMeshGenerationTasks;
+    private readonly Task[] _mTerrainGenerationTasks;
+
+    private readonly HashSet<ChunkPos> _ChunksNeedingMeshUpdate = new();
+
+    private readonly object _mMeshUpdateLock = new object();
+
+    private readonly ConcurrentQueue<List<Vertex>> _mVertexListPool = new();
+    private readonly ConcurrentQueue<List<uint>> _mIndexListPool = new();
+
     private const int MAX_POOLED_OBJECTS = 50;
     private const int WORKER_THREAD_COUNT = 2;
+    private const int TERRAIN_THREAD_COUNT = 2;
 
-    public Frustum frustum;
+    public Frustum ChunkManagerFrustum;
 
     public ChunkManager()
     {
-        frustum = new Frustum();
+        ChunkManagerFrustum = new Frustum();
 
         for (int i = 0; i < 20; i++)
         {
-            vertexListPool.Enqueue(new List<Vertex>());
-            indexListPool.Enqueue(new List<uint>());
+            _mVertexListPool.Enqueue(new List<Vertex>());
+            _mIndexListPool.Enqueue(new List<uint>());
         }
 
-        meshGenerationTasks = new Task[WORKER_THREAD_COUNT];
+        _mMeshGenerationTasks = new Task[WORKER_THREAD_COUNT];
         for (int i = 0; i < WORKER_THREAD_COUNT; i++)
         {
-            meshGenerationTasks[i] = Task.Run(meshGenWorker, cancellationTokenSource.Token);
+            _mMeshGenerationTasks[i] = Task.Run(meshGenWorker, _mCancellationTokenSource.Token);
+        }
+
+        _mTerrainGenerationTasks = new Task[TERRAIN_THREAD_COUNT];
+        for (int i = 0; i < TERRAIN_THREAD_COUNT; i++)
+        {
+            _mTerrainGenerationTasks[i] = Task.Run(terrainGenWorker, _mCancellationTokenSource.Token);
         }
     }
 
     public List<Vertex> GetVertexList()
     {
-        if (vertexListPool.TryDequeue(out var list))
+        if (_mVertexListPool.TryDequeue(out var list))
         {
             list.Clear();
             return list;
@@ -53,7 +71,7 @@ public class ChunkManager : IDisposable
 
     public List<uint> GetIndexList()
     {
-        if (indexListPool.TryDequeue(out var list))
+        if (_mIndexListPool.TryDequeue(out var list))
         {
             list.Clear();
             return list;
@@ -63,21 +81,21 @@ public class ChunkManager : IDisposable
 
     public void ReturnVertexList(List<Vertex> list)
     {
-        if (list != null && vertexListPool.Count < MAX_POOLED_OBJECTS)
+        if (list != null && _mVertexListPool.Count < MAX_POOLED_OBJECTS)
         {
             list.Clear();
             list.TrimExcess();
-            vertexListPool.Enqueue(list);
+            _mVertexListPool.Enqueue(list);
         }
     }
 
     public void ReturnIndexList(List<uint> list)
     {
-        if (list != null && indexListPool.Count < MAX_POOLED_OBJECTS)
+        if (list != null && _mIndexListPool.Count < MAX_POOLED_OBJECTS)
         {
             list.Clear();
             list.TrimExcess();
-            indexListPool.Enqueue(list);
+            _mIndexListPool.Enqueue(list);
         }
     }
 
@@ -88,7 +106,7 @@ public class ChunkManager : IDisposable
             (int)MathF.Floor(playerPos.Z / Constants.CHUNK_SIZE)
         );
 
-        VoxelGame.VoxelGame.init.currentChunkPosition = new OpenTK.Mathematics.Vector2i(playerChunk.X, playerChunk.Z);
+        VoxelGame.VoxelGame.init.CurrentChunkPosition = new OpenTK.Mathematics.Vector2i(playerChunk.X, playerChunk.Z);
 
         var newChunks = new List<ChunkPos>();
         for (int x = playerChunk.X - Constants.RENDER_DISTANCE; x <= playerChunk.X + Constants.RENDER_DISTANCE; x++)
@@ -97,47 +115,73 @@ public class ChunkManager : IDisposable
             {
                 ChunkPos pos = new ChunkPos(x, z);
 
-                if (!_chunks.ContainsKey(pos))
+                if (!_Chunks.ContainsKey(pos))
                 {
-                    _chunks[pos] = new Chunk(pos);
+                    _Chunks[pos] = new Chunk(pos, false);
                     newChunks.Add(pos);
-                    Serialization.Load(_chunks[pos]);
-                    enqueueMeshGeneration(pos);
+
+                    if (!Serialization.Load(_Chunks[pos]))
+                    {
+                        //queueTerrainGeneration(pos);
+
+                        lock (_mQueueLock)
+                        {
+                            if (!_mQueuedTerrainChunks.Contains(pos))
+                            {
+                                _mQueuedTerrainChunks.Add(pos);
+                                _mTerrainGenerationQueue.Enqueue(pos);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        queueMeshGen(pos);
+                    }
                 }
             }
         }
 
+        // Re-gen chunks around new chunks to get rid of chunk boarders
         foreach (var newChunkPos in newChunks)
         {
             ReGenChunkNeighbors(newChunkPos);
         }
 
-        // Process priority updates first
-        lock (meshUpdateLock)
+        // Process priority
+        lock (_mMeshUpdateLock)
         {
-            foreach (var chunkPos in chunksNeedingMeshUpdate)
+            foreach (var chunkPos in _ChunksNeedingMeshUpdate)
             {
-                if (_chunks.TryGetValue(chunkPos, out var chunk))
+                if (_Chunks.TryGetValue(chunkPos, out var chunk))
                 {
                     chunk.MeshGenerated = false;
-                  
-                    enqueuePriorityMeshGeneration(chunkPos);
+                    //queuePriorityMesh(chunkPos);
+
+                    lock (_mQueueLock)
+                    {
+                        if (!_mQueuedChunks.Contains(chunkPos))
+                        {
+                            _mQueuedChunks.Add(chunkPos);
+                            _mPriorityMeshQueue.Enqueue(chunkPos);
+                        }
+                    }
                 }
             }
-            chunksNeedingMeshUpdate.Clear();
+            _ChunksNeedingMeshUpdate.Clear();
         }
 
-        foreach (var kvp in _chunks.ToList())
+        // Add the chunks to the queue, if their mesh is not generated
+        foreach (var kvp in _Chunks.ToList())
         {
-            if (!kvp.Value.MeshGenerated)
+            if (!kvp.Value.MeshGenerated && kvp.Value.TerrainGenerated)
             {
-                enqueueMeshGeneration(kvp.Key);
+                queueMeshGen(kvp.Key);
             }
         }
 
         // Process all chunks to remove at once
         var chunksToRemove = new List<ChunkPos>();
-        foreach (var kvp in _chunks)
+        foreach (var kvp in _Chunks)
         {
             int dx = kvp.Key.X - playerChunk.X;
             int dz = kvp.Key.Z - playerChunk.Z;
@@ -151,14 +195,15 @@ public class ChunkManager : IDisposable
         // Remove chunks in batches
         foreach (var pos in chunksToRemove)
         {
-            if (_chunks.TryRemove(pos, out var chunk))
+            if (_Chunks.TryRemove(pos, out var chunk))
             {
                 if (chunk.Modified)
                     Serialization.SaveChunk(chunk);
 
-                lock (queueLock)
+                lock (_mQueueLock)
                 {
-                    queuedChunks.Remove(pos);
+                    _mQueuedChunks.Remove(pos);
+                    _mQueuedTerrainChunks.Remove(pos);
                 }
 
                 chunk.Dispose();
@@ -172,87 +217,106 @@ public class ChunkManager : IDisposable
         }
     }
 
-    private void enqueueMeshGeneration(ChunkPos pos)
+    private void queueMeshGen(ChunkPos pos)
     {
-        lock (queueLock)
+        lock (_mQueueLock)
         {
-            if (!queuedChunks.Contains(pos))
+            if (!_mQueuedChunks.Contains(pos))
             {
-                queuedChunks.Add(pos);
-                meshGenerationQueue.Enqueue(pos);
-            }
-        }
-    }
-
-    private void enqueuePriorityMeshGeneration(ChunkPos pos)
-    {
-        lock (queueLock)
-        {
-            if (!queuedChunks.Contains(pos))
-            {
-                queuedChunks.Add(pos);
-                priorityMeshQueue.Enqueue(pos);
+                _mQueuedChunks.Add(pos);
+                _mCeshGenerationQueue.Enqueue(pos);
             }
         }
     }
 
     public void MarkChunksForUpdate(IEnumerable<ChunkPos> chunkPositions)
     {
-        lock (meshUpdateLock)
+        lock (_mMeshUpdateLock)
         {
             foreach (var pos in chunkPositions)
             {
-                chunksNeedingMeshUpdate.Add(pos);
+                _ChunksNeedingMeshUpdate.Add(pos);
+            }
+        }
+    }
+
+    private async Task terrainGenWorker()
+    {
+        while (!_mCancellationTokenSource.Token.IsCancellationRequested)
+        {
+            ChunkPos pos;
+            bool foundWork = false;
+
+            if (_mTerrainGenerationQueue.TryDequeue(out pos))
+            {
+                foundWork = true;
+
+                lock (_mQueueLock)
+                {
+                    _mQueuedTerrainChunks.Remove(pos);
+                }
+
+                if (_Chunks.TryGetValue(pos, out var chunk) && !chunk.TerrainGenerated)
+                {
+                    VoxelGame.VoxelGame.init.TerrainGen.GenerateTerrain(chunk);
+                    chunk.TerrainGenerated = true;
+
+                    queueMeshGen(pos);
+                }
+            }
+
+            if (!foundWork)
+            {
+                await Task.Delay(10, _mCancellationTokenSource.Token);
             }
         }
     }
 
     private async Task meshGenWorker()
     {
-        while (!cancellationTokenSource.Token.IsCancellationRequested)
+        while (!_mCancellationTokenSource.Token.IsCancellationRequested)
         {
             ChunkPos pos;
             bool foundWork = false;
 
-            // Check priority queue first
-            if (priorityMeshQueue.TryDequeue(out pos))
+            // Priority queue
+            if (_mPriorityMeshQueue.TryDequeue(out pos))
             {
                 foundWork = true;
             }
-            // Then check regular queue
-            else if (meshGenerationQueue.TryDequeue(out pos))
+            // Regular queue
+            else if (_mCeshGenerationQueue.TryDequeue(out pos))
             {
                 foundWork = true;
             }
 
             if (foundWork)
             {
-                lock (queueLock)
+                lock (_mQueueLock)
                 {
-                    queuedChunks.Remove(pos);
+                    _mQueuedChunks.Remove(pos);
                 }
 
-                if (_chunks.TryGetValue(pos, out var chunk) && !chunk.MeshGenerated)
+                if (_Chunks.TryGetValue(pos, out var chunk) && !chunk.MeshGenerated && chunk.TerrainGenerated)
                 {
                     chunk.GenMesh(this);
                 }
             }
             else
             {
-                await Task.Delay(5, cancellationTokenSource.Token); // Reduced delay for faster response
+                await Task.Delay(5, _mCancellationTokenSource.Token);
             }
         }
     }
 
     public void UploadPendingMeshes()
     {
-        // Process uploads in batches to avoid frame drops
         int uploadsThisFrame = 0;
         const int maxUploadsPerFrame = 3;
 
-        foreach (var chunk in _chunks.Values)
+        foreach (var chunk in _Chunks.Values)
         {
-            if (chunk.MeshGenerated && !chunk.MeshUploaded)
+            if (chunk.MeshGenerated && !chunk.MeshUploaded && chunk.TerrainGenerated)
             {
                 chunk.UploadMesh(this);
                 uploadsThisFrame++;
@@ -267,11 +331,11 @@ public class ChunkManager : IDisposable
     {
         float nearPlane = 0.1f;
         float farPlane = 1000f;
-        frustum.UpdateFromCamera(cameraPosition, cameraFront, cameraUp, fov, aspectRatio, nearPlane, farPlane);
+        ChunkManagerFrustum.UpdateFromCamera(cameraPosition, cameraFront, cameraUp, fov, aspectRatio, nearPlane, farPlane);
 
-        foreach (var kvp in _chunks)
+        foreach (var kvp in _Chunks)
         {
-            if (kvp.Value.MeshUploaded && kvp.Value.IsInFrustum(frustum))
+            if (kvp.Value.MeshUploaded && kvp.Value.TerrainGenerated && kvp.Value.IsInFrustum(ChunkManagerFrustum))
             {
                 kvp.Value.Render();
             }
@@ -280,7 +344,7 @@ public class ChunkManager : IDisposable
 
     public Chunk GetChunk(ChunkPos position)
     {
-        _chunks.TryGetValue(position, out var chunk);
+        _Chunks.TryGetValue(position, out var chunk);
         return chunk;
     }
 
@@ -296,7 +360,7 @@ public class ChunkManager : IDisposable
 
         foreach (var neighborPos in neighbors)
         {
-            if (_chunks.TryGetValue(neighborPos, out var neighborChunk) && neighborChunk.MeshGenerated)
+            if (_Chunks.TryGetValue(neighborPos, out var neighborChunk) && neighborChunk.MeshGenerated)
             {
                 neighborChunk.MeshGenerated = false;
             }
@@ -305,26 +369,35 @@ public class ChunkManager : IDisposable
 
     public void Dispose()
     {
-        cancellationTokenSource.Cancel();
+        _mCancellationTokenSource.Cancel();
 
         try
         {
-            if (!Task.WaitAll(meshGenerationTasks, 1000))
+            var allTasks = _mMeshGenerationTasks.Concat(_mTerrainGenerationTasks).ToArray();
+
+            if (!Task.WaitAll(allTasks, 1000))
             {
-                Console.WriteLine("Mesh generation tasks did not complete in time, forcing disposal");
+                Console.WriteLine("Worker tasks did not complete in time, force disposal");
             }
         }
-        catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is TaskCanceledException))
+        catch (AggregateException ex)
         {
-            // Expected when cancelling
+            var nonCancellationExceptions = ex.InnerExceptions
+                .Where(e => !(e is OperationCanceledException))
+                .ToList();
+
+            if (nonCancellationExceptions.Any())
+            {
+                Console.WriteLine($"Error waiting for worker tasks: {string.Join(", ", nonCancellationExceptions.Select(e => e.Message))}");
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error waiting for mesh generation tasks: {ex.Message}");
+            Console.WriteLine($"Error waiting for worker tasks: {ex.Message}");
         }
 
         // Dispose chunks on main thread
-        var chunksToDispose = _chunks.Values.ToList();
+        var chunksToDispose = _Chunks.Values.ToList();
         foreach (var chunk in chunksToDispose)
         {
             try
@@ -337,28 +410,30 @@ public class ChunkManager : IDisposable
             }
         }
 
-        _chunks.Clear();
+        _Chunks.Clear();
 
-        lock (queueLock)
+        lock (_mQueueLock)
         {
-            queuedChunks.Clear();
-            while (meshGenerationQueue.TryDequeue(out _)) { }
-            while (priorityMeshQueue.TryDequeue(out _)) { }
+            _mQueuedChunks.Clear();
+            _mQueuedTerrainChunks.Clear();
+            while (_mCeshGenerationQueue.TryDequeue(out _)) { }
+            while (_mPriorityMeshQueue.TryDequeue(out _)) { }
+            while (_mTerrainGenerationQueue.TryDequeue(out _)) { }
         }
 
         // Clear object pools
-        while (vertexListPool.TryDequeue(out var vertexList))
+        while (_mVertexListPool.TryDequeue(out var vertexList))
         {
             vertexList.Clear();
         }
-        while (indexListPool.TryDequeue(out var indexList))
+        while (_mIndexListPool.TryDequeue(out var indexList))
         {
             indexList.Clear();
         }
 
         try
         {
-            cancellationTokenSource.Dispose();
+            _mCancellationTokenSource.Dispose();
         }
         catch (Exception ex)
         {

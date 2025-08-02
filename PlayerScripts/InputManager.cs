@@ -1,4 +1,5 @@
-﻿using OpenTK.Mathematics;
+﻿// This script manages inputs from the keyboard and mouse. | DA | 8/1/25
+using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using VoxelGame.Utils;
@@ -7,93 +8,94 @@ namespace VoxelGame.PlayerScripts
 {
     public class InputManager
     {
-        private bool sprinting = false;
-        Player player;
-        private bool firstMove = true;
+        private bool mSprinting = false;
+        private bool mFirstMove = true;
 
-        private Vector2 lastMousePos;
+        private Player mPlayer;
+
+        private Vector2 mLastMousePos;
 
         public InputManager(Player _player)
         {
-            this.player = _player;
+            this.mPlayer = _player;
         }
 
         public void KeyboardUpdate(KeyboardState keyboard, FrameEventArgs e)
         {
-            Vector3 front = Vector3.Normalize(new Vector3(player._Camera.Front.X, 0.0f, player._Camera.Front.Z));
+            Vector3 front = Vector3.Normalize(new Vector3(mPlayer._Camera.Front.X, 0.0f, mPlayer._Camera.Front.Z));
             Vector3 right = Vector3.Normalize(Vector3.Cross(front, Vector3.UnitY));
 
             if (keyboard.IsKeyDown(Keys.W))
-                player.Velocity += front * (sprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
+                mPlayer.Velocity += front * (mSprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
 
             if (keyboard.IsKeyDown(Keys.S))
-                player.Velocity -= front * (sprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
+                mPlayer.Velocity -= front * (mSprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
 
             if (keyboard.IsKeyDown(Keys.A))
-                player.Velocity -= right * (sprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
+                mPlayer.Velocity -= right * (mSprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
 
             if (keyboard.IsKeyDown(Keys.D))
-                player.Velocity += right * (sprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
+                mPlayer.Velocity += right * (mSprinting ? Player.SPRINT_SPEED : Player.MOVE_SPEED);
 
             if (keyboard.IsKeyDown(Keys.Space))
-                player.Jump();
+                mPlayer.Jump();
 
             if (keyboard.IsKeyDown(Keys.LeftShift))
-                sprinting = true;
+                mSprinting = true;
             else
-                sprinting = false;
+                mSprinting = false;
 
             if(keyboard.IsKeyDown(Keys.R))
-                player.ResetPosition();
+                mPlayer.ResetPosition();
 
             if (keyboard.IsKeyDown(Keys.D1))
             {
-                player.terrainModifier.SetCurrentBlockByNum(0);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(0);
             }
 
             if (keyboard.IsKeyDown(Keys.D2))
             {
-                player.terrainModifier.SetCurrentBlockByNum(1);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(1);
             }
 
             if (keyboard.IsKeyDown(Keys.D3))
             {
-                player.terrainModifier.SetCurrentBlockByNum(2);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(2);
             }
 
             if (keyboard.IsKeyDown(Keys.D4))
             {
-                player.terrainModifier.SetCurrentBlockByNum(3);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(3);
             }
 
             if (keyboard.IsKeyDown(Keys.D5))
             {
-                player.terrainModifier.SetCurrentBlockByNum(4);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(4);
             }
 
             if (keyboard.IsKeyDown(Keys.D6))    
             {
-                player.terrainModifier.SetCurrentBlockByNum(5);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(5);
             }
 
             if (keyboard.IsKeyDown(Keys.D7))
             {
-                player.terrainModifier.SetCurrentBlockByNum(6);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(6);
             }
 
             if (keyboard.IsKeyDown(Keys.D8))
             {
-                player.terrainModifier.SetCurrentBlockByNum(7);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(7);
             }
 
             if (keyboard.IsKeyDown(Keys.D9))
             {
-                player.terrainModifier.SetCurrentBlockByNum(8);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(8);
             }
 
             if (keyboard.IsKeyDown(Keys.D0))
             {
-                player.terrainModifier.SetCurrentBlockByNum(9);
+                mPlayer._TerrainModifier.SetCurrentBlockByNum(9);
             }
         }
 
@@ -101,28 +103,28 @@ namespace VoxelGame.PlayerScripts
         {
             if (e.OffsetY < 0)
             {
-                player.terrainModifier.SetCurrentBlock((int)-1);
+                mPlayer._TerrainModifier.SetCurrentBlock((int)-1);
             }
             if (e.OffsetY > 0)
             {
-                player.terrainModifier.SetCurrentBlock((int)1);
+                mPlayer._TerrainModifier.SetCurrentBlock((int)1);
             }
         }
 
         public void MouseUpdate(MouseState mouse)
         {
-            if (firstMove)
+            if (mFirstMove)
             {
-                lastMousePos = new Vector2(mouse.X, mouse.Y);
-                firstMove = false;
+                mLastMousePos = new Vector2(mouse.X, mouse.Y);
+                mFirstMove = false;
             }
             else
             {
-                float deltaX = mouse.X - lastMousePos.X;
-                float deltaY = lastMousePos.Y - mouse.Y;
-                lastMousePos = new Vector2(mouse.X, mouse.Y);
+                float deltaX = mouse.X - mLastMousePos.X;
+                float deltaY = mLastMousePos.Y - mouse.Y;
+                mLastMousePos = new Vector2(mouse.X, mouse.Y);
 
-                player._Camera.ProcessMouseMovement(deltaX, deltaY);
+                mPlayer._Camera.ProcessMouseMovement(deltaX, deltaY);
             }
         }
 
@@ -130,17 +132,17 @@ namespace VoxelGame.PlayerScripts
         {
             if (mouse.Button == MouseButton.Left)
             {
-                player.terrainModifier.BreakBlock(player._Camera.Position, player._Camera.Front);
+                mPlayer._TerrainModifier.BreakBlock(mPlayer._Camera.Position, mPlayer._Camera.Front);
             }
             else if (mouse.Button == MouseButton.Right)
             {
-                player.terrainModifier.PlaceBlock(player._Camera.Position, player._Camera.Front);
+                mPlayer._TerrainModifier.PlaceBlock(mPlayer._Camera.Position, mPlayer._Camera.Front);
             }
         }
 
         public void OnGamePaused()
         {
-            firstMove = true;
+            mFirstMove = true;
         }
     }
 }
