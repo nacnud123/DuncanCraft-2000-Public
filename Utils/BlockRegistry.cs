@@ -37,6 +37,7 @@ namespace VoxelGame.Utils
             mBlocks[18] = new IronOreBlock();
             mBlocks[19] = new GoldOreBlock();
             mBlocks[20] = new DiamondOreBlock();
+            mBlocks[21] = new TorchBlock();
             
         }
 
@@ -74,6 +75,7 @@ namespace VoxelGame.Utils
         public const byte IronOre = 18;
         public const byte GoldOre = 19;
         public const byte DiamondOre = 20;
+        public const byte Torch = 21;
         
     }
 }

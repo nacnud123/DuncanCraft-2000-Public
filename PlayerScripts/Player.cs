@@ -61,7 +61,7 @@ namespace VoxelGame.PlayerScripts
             {
                 updatePhysics(FIXED_TIMESTEP);
 
-                // Incase the player like falls out of the world, reset their position
+                // In case the player like falls out of the world, reset their position
                 if (mPosition.Y < -10)
                 {
                     mPosition = mSpawnPosition;
@@ -199,7 +199,7 @@ namespace VoxelGame.PlayerScripts
 
             // Get block from chunk
             byte blockType = getBlockAt(worldX, worldY, worldZ);
-            if (blockType == BlockIDs.Air || blockType == BlockIDs.YellowFlower)
+            if (blockType == BlockIDs.Air || blockType == BlockIDs.YellowFlower || blockType == BlockIDs.Torch)
                 return false;
 
             // Calculate block bounds

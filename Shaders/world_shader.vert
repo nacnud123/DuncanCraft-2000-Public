@@ -8,12 +8,14 @@ layout (location = 4) in float aLightValue;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform vec3 viewPos;
 
 out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoord;
 out float TextureID;
 out float LightValue;
+out float FragDistance;
 
 void main() {
     FragPos = vec3(model * vec4(aPos, 1.0));
@@ -21,6 +23,8 @@ void main() {
     TexCoord = aTexCoord;
     TextureID = aTextureID;
     LightValue = aLightValue;
+    
+    FragDistance = length(FragPos - viewPos);
     
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }

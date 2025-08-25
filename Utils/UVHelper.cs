@@ -1,4 +1,4 @@
-﻿// Used to help UVs of block textures. | DA | 8/1/25
+﻿// Used to help UVs of block textures. Also can be used to get like half textures | DA | 8/25/25
 using OpenTK.Mathematics;
 
 namespace VoxelGame.Utils
@@ -12,6 +12,30 @@ namespace VoxelGame.Utils
         {
             Vector2 topLeft = new Vector2(x * TILE_SIZE, y * TILE_SIZE);
             Vector2 bottomRight = new Vector2((x + 1) * TILE_SIZE, (y + 1) * TILE_SIZE);
+
+            return new TextureCoords
+            {
+                TopLeft = topLeft,
+                BottomRight = bottomRight
+            };
+        }
+
+        public static TextureCoords FromPartialTile(int tileX, int tileY, float startPixelX, float startPixelY, float widthPixels, float heightPixels)
+        {
+            float tilePixelSize = TILE_SIZE / 16f;
+            
+            float baseX = tileX * TILE_SIZE;
+            float baseY = tileY * TILE_SIZE;
+            
+            Vector2 topLeft = new Vector2(
+                baseX + startPixelX * tilePixelSize,
+                baseY + startPixelY * tilePixelSize
+            );
+            
+            Vector2 bottomRight = new Vector2(
+                baseX + (startPixelX + widthPixels) * tilePixelSize,
+                baseY + (startPixelY + heightPixels) * tilePixelSize
+            );
 
             return new TextureCoords
             {

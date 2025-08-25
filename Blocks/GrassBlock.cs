@@ -1,5 +1,7 @@
 ﻿using OpenTK.Mathematics;
 using VoxelGame.Utils;
+using VoxelGame.Ticking;
+using VoxelGame.World;
 
 namespace VoxelGame.Blocks
 {
@@ -18,5 +20,8 @@ namespace VoxelGame.Blocks
         public TextureCoords InventoryCoords => SideTextureCoords;
         public bool GravityBlock => false;
         public BlockMaterial Material => BlockMaterial.Dirt;
+        public bool Transparent => false;
+        public byte LightLevel => 0;
+        public byte LightOpacity => 15;
     }
 }

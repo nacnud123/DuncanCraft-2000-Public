@@ -1,4 +1,4 @@
-﻿// Saves and loads worlds. Serializes the chunk into a 1d array and then when you load a chunk it makes it back into a 3d array and loads the data into the chunk | DA | 8/1/25
+﻿// Saves and loads worlds. Serializes the chunk into a 1d array and then when you load a chunk it makes it back into a 3d array and loads the data into the chunk. Also helps give the title screen data like a sorted list of all the worlds | DA | 8/1/25
 using System.Xml.Serialization;
 using VoxelGame.Utils;
 using VoxelGame.World;
@@ -63,11 +63,27 @@ namespace VoxelGame.Saving
             {
                 ID = GenerateWorldID(),
                 WorldName = worldName,
-                Seed = customSeed ?? genSeed(worldName)
+                Seed = customSeed ?? genSeed(worldName),
+                LastPlayed = DateTime.Now
             };
             
             SaveWorldMetadata(worldData);
             return worldData;
+        }
+        
+        public static void UpdateLastPlayed(string worldName)
+        {
+            var worldData = LoadWorldData(worldName);
+            if (worldData.HasValue)
+            {
+                var updatedData = worldData.Value;
+                updatedData.LastPlayed = DateTime.Now;
+                
+                string oldWorldName = s_WorldName;
+                s_WorldName = worldName;
+                SaveWorldMetadata(updatedData);
+                s_WorldName = oldWorldName;
+            }
         }
         
         public static List<WorldSaveData> GetAllWorlds()
@@ -85,9 +101,25 @@ namespace VoxelGame.Saving
                 var worldData = LoadWorldData(worldName);
                 if (worldData.HasValue)
                 {
-                    worlds.Add(worldData.Value);
+                    var data = worldData.Value;
+
+                    if (data.LastPlayed == DateTime.MinValue)
+                    {
+                        try
+                        {
+                            data.LastPlayed = Directory.GetCreationTime(dir);
+                        }
+                        catch
+                        {
+                            data.LastPlayed = DateTime.Now.AddDays(-365);
+                        }
+                    }
+                    
+                    worlds.Add(data);
                 }
             }
+
+            worlds.Sort((w1, w2) => w2.LastPlayed.CompareTo(w1.LastPlayed));
 
             return worlds;
         }

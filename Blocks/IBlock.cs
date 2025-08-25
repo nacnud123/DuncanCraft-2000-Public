@@ -1,9 +1,4 @@
-﻿// Interface that defines what a block is and it's properties. Could this be a struct, sure, but it is not | DA | 8/1/25
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿// Interface that defines what a block is and it's properties. Could this be a struct, sure, but it is not | DA | 8/4/25
 using VoxelGame.Utils;
 
 namespace VoxelGame.Blocks
@@ -54,6 +49,11 @@ namespace VoxelGame.Blocks
         public bool IsSolid { get; }
 
         /// <summary>
+        /// Does the block allow light to pass through it. Glass and leaves are transparent to light.
+        /// </summary>
+        public bool Transparent { get; }
+
+        /// <summary>
         /// Is the block effected by gravity, not used yet
         /// </summary>
         public bool GravityBlock { get; }
@@ -67,5 +67,15 @@ namespace VoxelGame.Blocks
         /// Whats the block made out of / what category does it fit into
         /// </summary>
         public BlockMaterial Material { get; }
+
+        /// <summary>
+        /// How much light this block emits (0-15, where 0 = no light, 15 = brightest)
+        /// </summary>
+        public byte LightLevel { get; }
+
+        /// <summary>
+        /// How much this block reduces light passing through it (0-15, where 0 = transparent, 15 = completely opaque)
+        /// </summary>
+        public byte LightOpacity { get; }
     }
 }

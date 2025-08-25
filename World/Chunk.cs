@@ -1,10 +1,10 @@
-﻿// Main chunk class. Holds stuff like the blocks in the chunk and has the functions that allows for chunk re-generation. Also has stuff related to OpenGL. | DA | 8/1/25
+﻿// This is the main chunk class, holds stuff like the blocks found in the chunk, the verticies and stuff related to OpenGL, and some lighting data. | DA | 8/25/25
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using VoxelGame.Blocks;
 using VoxelGame.Utils;
+using VoxelGame.Lighting;
 using System.Runtime.CompilerServices;
-using SkiaSharp;
 
 namespace VoxelGame.World
 {
@@ -12,6 +12,10 @@ namespace VoxelGame.World
     {
         public ChunkPos Position { get; }
         public byte[,,] Voxels { get; set; }
+
+        public byte[,,] SunlightLevels { get; set; }
+        public byte[,,] BlockLightLevels { get; set; }
+
         public List<Vertex>? Vertices { get; private set; }
         public List<uint>? Indices { get; private set; }
 
@@ -20,6 +24,9 @@ namespace VoxelGame.World
         public int EBO { get; private set; }
 
         private int mIndexCount = 0;
+        private int mCurrentVBOSize = 0;
+        private int mCurrentEBOSize = 0;
+        private bool mVertexAttribsSet = false;
 
         public bool MeshGenerated;
         public bool MeshUploaded;
@@ -32,19 +39,7 @@ namespace VoxelGame.World
 
         private Vector3 mChunkWorldOffset = new Vector3();
 
-        private Vector3[] mFaceNormals =
-        [
-            new Vector3(0, 0, 1), new Vector3(0, 0, -1), new Vector3(-1, 0, 0),
-            new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0)
-        ];
-
-        private Vector3[] mFlowerNormals =
-        [
-            new Vector3(0.707f, 0, 0.707f),
-            new Vector3(-0.707f, 0, -0.707f),
-            new Vector3(-0.707f, 0, 0.707f),
-            new Vector3(0.707f, 0, -0.707f)
-        ];
+        private ChunkMeshGenerator mMeshGenerator;
 
         private bool mOpenGLMade = false;
 
@@ -52,6 +47,8 @@ namespace VoxelGame.World
         {
             Position = position;
             Voxels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
+            SunlightLevels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
+            BlockLightLevels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
 
             Vertices = null;
             Indices = null;
@@ -94,7 +91,6 @@ namespace VoxelGame.World
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool isVoxelSolid(int x, int y, int z, ChunkManager chunkManager)
         {
-            // Fast path for within chunk bounds
             if (x >= 0 && x < Constants.CHUNK_SIZE && y >= 0 && y < Constants.CHUNK_HEIGHT && z >= 0 && z < Constants.CHUNK_SIZE)
             {
                 return BlockRegistry.GetBlock(Voxels[x, y, z]).IsSolid;
@@ -106,36 +102,35 @@ namespace VoxelGame.World
                 return false;
             }
 
-            ChunkPos neighborPos = Position;
-            int neighborX = x;
-            int neighborZ = z;
+            // Calculate world position for cross-chunk lookup
+            Vector3i worldPos = new Vector3i(
+                Position.X * Constants.CHUNK_SIZE + x,
+                y,
+                Position.Z * Constants.CHUNK_SIZE + z
+            );
 
-            if (x < 0)
-            {
-                neighborPos = new ChunkPos(Position.X - 1, Position.Z);
-                neighborX = Constants.CHUNK_SIZE - 1;
-            }
-            else if (x >= Constants.CHUNK_SIZE)
-            {
-                neighborPos = new ChunkPos(Position.X + 1, Position.Z);
-                neighborX = 0;
-            }
+            // Get the chunk containing this world position
+            ChunkPos targetChunkPos = new ChunkPos(
+                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
+                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
+            );
 
-            if (z < 0)
+            Chunk targetChunk = chunkManager.GetChunk(targetChunkPos);
+            if (targetChunk != null && targetChunk.TerrainGenerated)
             {
-                neighborPos = new ChunkPos(neighborPos.X, Position.Z - 1);
-                neighborZ = Constants.CHUNK_SIZE - 1;
-            }
-            else if (z >= Constants.CHUNK_SIZE)
-            {
-                neighborPos = new ChunkPos(neighborPos.X, Position.Z + 1);
-                neighborZ = 0;
-            }
+                Vector3i localPos = new Vector3i(
+                    worldPos.X - targetChunkPos.X * Constants.CHUNK_SIZE,
+                    worldPos.Y,
+                    worldPos.Z - targetChunkPos.Z * Constants.CHUNK_SIZE
+                );
 
-            Chunk? neighborChunk = chunkManager.GetChunk(neighborPos);
-            if (neighborChunk != null && neighborChunk.TerrainGenerated)
-            {
-                return BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, y, neighborZ]).IsSolid;
+                if (localPos.X < 0) localPos.X += Constants.CHUNK_SIZE;
+                if (localPos.Z < 0) localPos.Z += Constants.CHUNK_SIZE;
+
+                if (targetChunk.IsInBounds(localPos))
+                {
+                    return BlockRegistry.GetBlock(targetChunk.Voxels[localPos.X, localPos.Y, localPos.Z]).IsSolid;
+                }
             }
 
             return false;
@@ -145,42 +140,52 @@ namespace VoxelGame.World
         private void updateGravityBlocks(ChunkManager manager)
         {
             bool blocksChanged = false;
+            bool hadChanges;
 
-            for (int y = Constants.CHUNK_HEIGHT - 1; y >= 0; y--)
+            do
             {
-                for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+                hadChanges = false;
+
+                for (int y = 1; y < Constants.CHUNK_HEIGHT; y++)
                 {
-                    for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                    for (int x = 0; x < Constants.CHUNK_SIZE; x++)
                     {
-                        byte blockType = Voxels[x, y, z];
-                        
-                        if(blockType == BlockIDs.Air || !BlockRegistry.GetBlock(blockType).GravityBlock)
-                            continue;
-
-                        if (!isVoxelSolid(x, y - 1, z, manager))
+                        for (int z = 0; z < Constants.CHUNK_SIZE; z++)
                         {
-                            int landingY = y;
-                            for (int checkY = y - 1; checkY >= 0; checkY--)
-                            {
-                                if (isVoxelSolid(x, checkY, z, manager))
-                                {
-                                    landingY = checkY + 1;
-                                    break;
-                                }
-                                landingY = 0;
-                            }
+                            byte blockType = Voxels[x, y, z];
 
-                            if (landingY < y)
+                            if (blockType == BlockIDs.Air || !BlockRegistry.GetBlock(blockType).GravityBlock)
+                                continue;
+
+                            if (!isVoxelSolid(x, y - 1, z, manager))
                             {
-                                Voxels[x, y, z] = BlockIDs.Air;
-                                Voxels[x, landingY, z] = blockType;
-                                blocksChanged = true;
-                                Modified = true;
+                                int landingY = y;
+                                for (int checkY = y - 1; checkY >= 0; checkY--)
+                                {
+                                    if (isVoxelSolid(x, checkY, z, manager))
+                                    {
+                                        landingY = checkY + 1;
+                                        break;
+                                    }
+                                    landingY = 0;
+                                }
+
+                                if (landingY < y)
+                                {
+                                    // Move the block
+                                    Voxels[x, y, z] = BlockIDs.Air;
+                                    Voxels[x, landingY, z] = blockType;
+
+                                    hadChanges = true;
+                                    blocksChanged = true;
+
+                                    Modified = true;
+                                }
                             }
                         }
                     }
                 }
-            }
+            } while (hadChanges);
 
             if (blocksChanged)
                 MeshGenerated = false;
@@ -190,181 +195,21 @@ namespace VoxelGame.World
         {
             if (mDisposed || !TerrainGenerated)
                 return;
-            
-            updateGravityBlocks(chunkManager);
 
-            bool gotPooledVertex = false;
-            bool gotPooledIndex = false;
-
-            var newVertices = chunkManager.GetVertexList();
-            if (newVertices.Capacity > 0) gotPooledVertex = true;
-
-            var newIndices = chunkManager.GetIndexList();
-            if (newIndices.Capacity > 0) 
-                gotPooledIndex = true;
-
-            uint vertexIndex = 0;
-
-            for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+            lock (this)
             {
-                for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
+                if (MeshGenerated)
+                    return;
+
+                updateGravityBlocks(chunkManager);
+
+                // Initialize mesh generator if needed
+                if (mMeshGenerator == null)
                 {
-                    for (int z = 0; z < Constants.CHUNK_SIZE; z++)
-                    {
-                        if (Voxels[x, y, z] == BlockIDs.Air) continue;
-
-                        bool showFront = !isVoxelSolid(x, y, z + 1, chunkManager);
-                        bool showBack = !isVoxelSolid(x, y, z - 1, chunkManager);
-                        bool showLeft = !isVoxelSolid(x - 1, y, z, chunkManager);
-                        bool showRight = !isVoxelSolid(x + 1, y, z, chunkManager);
-                        bool showTop = !isVoxelSolid(x, y + 1, z, chunkManager);
-                        bool showBottom = !isVoxelSolid(x, y - 1, z, chunkManager);
-
-                        bool[] showFace = { showFront, showBack, showLeft, showRight, showTop, showBottom };
-
-                        Vector3[,] blockFace = GetFace(Voxels[x, y, z]);
-                        int faceCount = blockFace.GetLength(0);
-
-                        for (int face = 0; face < faceCount; face++)
-                        {
-                            if (Voxels[x, y, z] != BlockIDs.YellowFlower && !showFace[face]) continue;
-
-                            Vector2[] texCoords = getTextureCoords(Voxels[x, y, z], face);
-                            Vector3 normal = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? mFlowerNormals[face] : mFaceNormals[face];
-
-                            for (int v = 0; v < 4; v++)
-                            {
-                                Vector3 localPosition = new Vector3(x, y, z) + blockFace[face, v];
-                                Vector3 worldPosition = localPosition + mChunkWorldOffset;
-
-                                float lightValue = (Voxels[x, y, z] == BlockIDs.YellowFlower) ? 1.0f : getFaceLighting(x, y, z, face, chunkManager);
-
-                                Vertex vertex = new Vertex(worldPosition, normal, texCoords[v], (float)Voxels[x, y, z], lightValue);
-                                newVertices.Add(vertex);
-                            }
-
-                            newIndices.Add(vertexIndex);
-                            newIndices.Add(vertexIndex + 1);
-                            newIndices.Add(vertexIndex + 2);
-                            newIndices.Add(vertexIndex);
-                            newIndices.Add(vertexIndex + 2);
-                            newIndices.Add(vertexIndex + 3);
-
-                            if (Voxels[x, y, z] == BlockIDs.YellowFlower)
-                            {
-                                newIndices.Add(vertexIndex);
-                                newIndices.Add(vertexIndex + 3);
-                                newIndices.Add(vertexIndex + 2);
-                                newIndices.Add(vertexIndex);
-                                newIndices.Add(vertexIndex + 2);
-                                newIndices.Add(vertexIndex + 1);
-                            }
-
-                            vertexIndex += 4;
-                        }
-                    }
-                }
-            }
-
-            // Return old lists to pool before replacing
-            if (Vertices != null)
-            {
-                chunkManager.ReturnVertexList(Vertices);
-                Vertices = null;
-            }
-            if (Indices != null)
-            {
-                chunkManager.ReturnIndexList(Indices);
-                Indices = null;
-            }
-
-            Vertices = newVertices;
-            Indices = newIndices;
-            MeshGenerated = true;
-            MeshUploaded = false;
-        }
-
-        public void UploadMesh(ChunkManager chunkManager)
-        {
-            if (mDisposed || !MeshGenerated || !TerrainGenerated || Vertices == null || Vertices.Count == 0)
-                return;
-
-            try
-            {
-                // Clean up old buffers
-                if (MeshUploaded && mOpenGLMade)
-                {
-                    GL.DeleteVertexArray(VAO);
-                    GL.DeleteBuffer(VBO);
-                    GL.DeleteBuffer(EBO);
-                    MeshUploaded = false;
-                    mOpenGLMade = false;
+                    mMeshGenerator = new ChunkMeshGenerator(chunkManager);
                 }
 
-                // Make new buffers
-                if (!mOpenGLMade)
-                {
-                    VAO = GL.GenVertexArray();
-                    VBO = GL.GenBuffer();
-                    EBO = GL.GenBuffer();
-                    mOpenGLMade = true;
-                }
-
-                GL.BindVertexArray(VAO);
-
-                var vertexArray = Vertices.ToArray();
-                var indexArray = Indices.ToArray();
-
-                // Vertex data
-                GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
-                GL.BufferData(BufferTarget.ArrayBuffer,
-                    vertexArray.Length * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    vertexArray, BufferUsageHint.StaticDraw);
-
-                // Index data
-                GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
-                GL.BufferData(BufferTarget.ElementArrayBuffer,
-                    indexArray.Length * sizeof(uint),
-                    indexArray, BufferUsageHint.StaticDraw);
-
-                // Vertex attributes
-                GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false,
-                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
-                GL.EnableVertexAttribArray(0);
-
-                // Normal
-                GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false,
-                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
-                GL.EnableVertexAttribArray(1);
-
-                // Texture coordinates
-                GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false,
-                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
-                GL.EnableVertexAttribArray(2);
-
-                // Texture ID
-                GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false,
-                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
-                GL.EnableVertexAttribArray(3);
-
-                // Lighting
-                GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false,
-                    System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                    System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.LightValue)));
-                GL.EnableVertexAttribArray(4);
-
-                GL.BindVertexArray(0);
-                GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
-                GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
-
-                MeshUploaded = true;
-
-                mIndexCount = Indices?.Count ?? 0;
-
-                // Clear the CPU lists
+                // Return old lists to pool before replacing
                 if (Vertices != null)
                 {
                     chunkManager.ReturnVertexList(Vertices);
@@ -375,44 +220,158 @@ namespace VoxelGame.World
                     chunkManager.ReturnIndexList(Indices);
                     Indices = null;
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error uploading mesh for chunk {Position}: {ex.Message}");
+
+                // Generate new mesh
+                (Vertices, Indices) = mMeshGenerator.GenerateMesh(this, chunkManager);
+                MeshGenerated = true;
                 MeshUploaded = false;
             }
         }
 
-        private Vector2[] getTextureCoords(byte voxelType, int faceIndex)
+        public void UploadMesh(ChunkManager chunkManager)
         {
-            IBlock block = BlockRegistry.GetBlock(voxelType);
+            if (mDisposed)
+                return;
 
-            TextureCoords coords;
-            switch (faceIndex)
+            List<Vertex> localVertices;
+            List<uint> localIndices;
+
+            lock (this)
             {
-                case 4: // Top
-                    coords = block.TopTextureCoords;
-                    break;
-                case 5: // Bottom
-                    coords = block.BottomTextureCoords;
-                    break;
-                default: // Side
-                    coords = block.SideTextureCoords;
-                    break;
+                if (!MeshGenerated || !TerrainGenerated || MeshUploaded ||
+                    Vertices == null || Indices == null ||
+                    Vertices.Count == 0 || Indices.Count == 0)
+                {
+                    return;
+                }
+
+                localVertices = new List<Vertex>(Vertices);
+                localIndices = new List<uint>(Indices);
             }
 
-            return
-            [
-                coords.TopLeft,
-                new Vector2(coords.BottomRight.X, coords.TopLeft.Y),
-                coords.BottomRight,
-                new Vector2(coords.TopLeft.X, coords.BottomRight.Y)
-            ];
+            try
+            {
+                if (!mOpenGLMade)
+                {
+                    VAO = GL.GenVertexArray();
+                    VBO = GL.GenBuffer();
+                    EBO = GL.GenBuffer();
+                    mOpenGLMade = true;
+                }
+
+                GL.BindVertexArray(VAO);
+
+                var vertexArray = localVertices.ToArray();
+                var indexArray = localIndices.ToArray();
+
+                if (vertexArray.Length == 0 || indexArray.Length == 0)
+                {
+                    Console.WriteLine($"Warning: Empty mesh data for chunk {Position}");
+                    MeshUploaded = true;
+                    mIndexCount = 0;
+                    return;
+                }
+
+                mIndexCount = indexArray.Length;
+
+                int vertexDataSize = vertexArray.Length * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>();
+                int indexDataSize = indexArray.Length * sizeof(uint);
+
+                // Vertex data
+                GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
+                if (vertexDataSize > mCurrentVBOSize)
+                {
+                    GL.BufferData(BufferTarget.ArrayBuffer, vertexDataSize, vertexArray, BufferUsageHint.DynamicDraw);
+                    mCurrentVBOSize = vertexDataSize;
+                }
+                else
+                {
+                    GL.BufferSubData(BufferTarget.ArrayBuffer, IntPtr.Zero, vertexDataSize, vertexArray);
+                }
+
+                // Index data
+                GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
+                if (indexDataSize > mCurrentEBOSize)
+                {
+                    GL.BufferData(BufferTarget.ElementArrayBuffer, indexDataSize, indexArray, BufferUsageHint.DynamicDraw);
+                    mCurrentEBOSize = indexDataSize;
+                }
+                else
+                {
+                    GL.BufferSubData(BufferTarget.ElementArrayBuffer, IntPtr.Zero, indexDataSize, indexArray);
+                }
+
+                // Set vertex attributes only once
+                if (!mVertexAttribsSet)
+                {
+                    // Vertex attributes
+                    GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false,
+                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
+                    GL.EnableVertexAttribArray(0);
+
+                    // Normal
+                    GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false,
+                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
+                    GL.EnableVertexAttribArray(1);
+
+                    // Texture coordinates
+                    GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false,
+                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
+                    GL.EnableVertexAttribArray(2);
+
+                    // Texture ID
+                    GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false,
+                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
+                    GL.EnableVertexAttribArray(3);
+
+                    // Lighting
+                    GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false,
+                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
+                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.LightValue)));
+                    GL.EnableVertexAttribArray(4);
+
+                    mVertexAttribsSet = true;
+                }
+
+                GL.BindVertexArray(0);
+                GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
+                GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
+
+                lock (this)
+                {
+                    MeshUploaded = true;
+
+                    if (Vertices != null)
+                    {
+                        chunkManager.ReturnVertexList(Vertices);
+                        Vertices = null;
+                    }
+                    if (Indices != null)
+                    {
+                        chunkManager.ReturnIndexList(Indices);
+                        Indices = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error uploading mesh for chunk {Position}: {ex.Message}");
+                Console.WriteLine($"Vertex count: {localVertices?.Count ?? 0}, Index count: {localIndices?.Count ?? 0}");
+
+                lock (this)
+                {
+                    MeshUploaded = false;
+                }
+            }
         }
 
         public void Render()
         {
-            if (!MeshUploaded || !TerrainGenerated || mIndexCount == 0 || mDisposed) return;
+            if (!MeshUploaded || !TerrainGenerated || mIndexCount == 0 || mDisposed) 
+                return;
 
             GL.BindVertexArray(VAO);
             GL.DrawElements(PrimitiveType.Triangles, mIndexCount, DrawElementsType.UnsignedInt, 0);
@@ -432,10 +391,22 @@ namespace VoxelGame.World
 
             if (disposing)
             {
+                // Clean up voxel and lighting data
+                Voxels = null;
+                SunlightLevels = null;
+                BlockLightLevels = null;
+
                 // Return lists to pool
                 if (Vertices != null && VoxelGame.init?._ChunkManager != null)
                 {
-                    Voxels = null;
+                    VoxelGame.init._ChunkManager.ReturnVertexList(Vertices);
+                    Vertices = null;
+                }
+
+                if (Indices != null && VoxelGame.init?._ChunkManager != null)
+                {
+                    VoxelGame.init._ChunkManager.ReturnIndexList(Indices);
+                    Indices = null;
                 }
 
                 // Clean up OpenGL resources
@@ -460,7 +431,6 @@ namespace VoxelGame.World
                 }
 
                 mDisposed = true;
-
                 mIndexCount = 0;
             }
         }
@@ -474,142 +444,6 @@ namespace VoxelGame.World
         {
             return Voxels[position.X, position.Y, position.Z];
         }
-
-        public Vector3[,] GetFace(byte block)
-        {
-            if (block == BlockIDs.Slab)
-            {
-                return new Vector3[6, 4]
-                {
-                    // Front face
-                    { new Vector3(0, 0, 1), new Vector3(1, 0, 1), new Vector3(1, .5f, 1), new Vector3(0, .5f, 1) },
-                    // Back face
-                    { new Vector3(1, 0, 0), new Vector3(0, 0, 0), new Vector3(0, .5f, 0), new Vector3(1, .5f, 0) },
-                    // Left face
-                    { new Vector3(0, 0, 0), new Vector3(0, 0, 1), new Vector3(0, .5f, 1), new Vector3(0, .5f, 0) },
-                    // Right face
-                    { new Vector3(1, 0, 1), new Vector3(1, 0, 0), new Vector3(1, .5f, 0), new Vector3(1, .5f, 1) },
-                    // Top face
-                    { new Vector3(0, .5f, 1), new Vector3(1, .5f, 1), new Vector3(1, .5f, 0), new Vector3(0, .5f, 0) },
-                    // Bottom face
-                    { new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 0, 1), new Vector3(0, 0, 1) }
-                };
-            }
-            else if (block == BlockIDs.YellowFlower)
-            {
-                return new Vector3[2, 4]
-                {
-                    // First diagonal
-                    { new Vector3(0, 0, 0), new Vector3(1, 0, 1), new Vector3(1, 1, 1), new Vector3(0, 1, 0) },
-                    // Second diagonal  
-                    { new Vector3(1, 0, 0), new Vector3(0, 0, 1), new Vector3(0, 1, 1), new Vector3(1, 1, 0) }
-                };
-            }
-            else
-            {
-                return new Vector3[6, 4]
-                {
-                    // Front face
-                    { new Vector3(0, 0, 1), new Vector3(1, 0, 1), new Vector3(1, 1, 1), new Vector3(0, 1, 1) },
-                    // Back face
-                    { new Vector3(1, 0, 0), new Vector3(0, 0, 0), new Vector3(0, 1, 0), new Vector3(1, 1, 0) },
-                    // Left face
-                    { new Vector3(0, 0, 0), new Vector3(0, 0, 1), new Vector3(0, 1, 1), new Vector3(0, 1, 0) },
-                    // Right face
-                    { new Vector3(1, 0, 1), new Vector3(1, 0, 0), new Vector3(1, 1, 0), new Vector3(1, 1, 1) },
-                    // Top face
-                    { new Vector3(0, 1, 1), new Vector3(1, 1, 1), new Vector3(1, 1, 0), new Vector3(0, 1, 0) },
-                    // Bottom face
-                    { new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 0, 1), new Vector3(0, 0, 1) }
-                };
-            }
-        }
-
-        #region Lighting
-        private float getFaceLighting(int x, int y, int z, int face, ChunkManager chunkManager)
-        {
-            float baseLighting = .8f;
-
-            int checkX = x, checkY = y, checkZ = z;
-
-            switch (face)
-            {
-                case 0: // Front face
-                    checkZ += 1; 
-                    break; 
-                case 1: // Back face
-                    checkZ -= 1; 
-                    break; 
-                case 2: // Left face
-                    checkX -= 1; 
-                    break; 
-                case 3: // Right face
-                    checkX += 1; 
-                    break; 
-                case 4: // Top face
-                    break;              
-                case 5: // Bottom face
-                    checkY -= 1; 
-                    break; 
-            }
-            return canSeeSun(checkX, checkY, checkZ, chunkManager) ? baseLighting : .4f;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool canSeeSun(int x, int y, int z, ChunkManager manager)
-        {
-
-            for (int checkY = y + 1; checkY < Constants.CHUNK_HEIGHT; checkY++)
-            {
-                if (x >= 0 && x < Constants.CHUNK_SIZE && z >= 0 && z < Constants.CHUNK_SIZE)
-                {
-                    if (BlockRegistry.GetBlock(Voxels[x, checkY, z]).IsSolid)
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    ChunkPos neighborPos = Position;
-                    int neighborX = x;
-                    int neighborZ = z;
-
-                    if (x < 0)
-                    {
-                        neighborPos = new ChunkPos(Position.X - 1, Position.Z);
-                        neighborX = Constants.CHUNK_SIZE - 1;
-                    }
-                    else if (x >= Constants.CHUNK_SIZE)
-                    {
-                        neighborPos = new ChunkPos(Position.X + 1, Position.Z);
-                        neighborX = 0;
-                    }
-
-                    if (z < 0)
-                    {
-                        neighborPos = new ChunkPos(neighborPos.X, Position.Z - 1);
-                        neighborZ = Constants.CHUNK_SIZE - 1;
-                    }
-                    else if (z >= Constants.CHUNK_SIZE)
-                    {
-                        neighborPos = new ChunkPos(neighborPos.X, Position.Z + 1);
-                        neighborZ = 0;
-                    }
-
-                    Chunk? neighborChunk = manager.GetChunk(neighborPos);
-                    if (neighborChunk != null && neighborChunk.TerrainGenerated)
-                    {
-                        if (BlockRegistry.GetBlock(neighborChunk.Voxels[neighborX, checkY, neighborZ]).IsSolid)
-                        {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            return true;
-        }
-        #endregion
 
         #region Frustum stuff
         public Vector3 WorldPosition
@@ -645,5 +479,13 @@ namespace VoxelGame.World
             return frustum.IsBoxInFrustum(BoundingBoxMin, BoundingBoxMax);
         }
         #endregion
+
+        public bool IsMeshReadyForUpload()
+        {
+            lock (this)
+            {
+                return MeshGenerated && !MeshUploaded && TerrainGenerated && Vertices != null && Indices != null && Vertices.Count > 0 && Indices.Count > 0;
+            }
+        }
     }
 }

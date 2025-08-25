@@ -1,4 +1,4 @@
-﻿// An over complex tree generator | DA | 8/1/25
+﻿// An overly complex tree generator | DA | 8/1/25
 using System;
 using System.Collections.Generic;
 using OpenTK.Mathematics;

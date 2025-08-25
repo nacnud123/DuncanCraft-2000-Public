@@ -1,4 +1,4 @@
-﻿// Main terrain modification script. Allows the player to break and place blocks in chunks. When that is done it tells the chunks to regen | DA | 8/1/25
+﻿// Updated TerrainModifier.cs - Tick-based version
 using OpenTK.Mathematics;
 using System;
 using VoxelGame.Utils;
@@ -25,7 +25,8 @@ namespace VoxelGame.PlayerScripts
             var hit = raycastDDA(playerPos, lookDirection);
             if (hit.HasValue)
             {
-                return SetBlock(hit.Value.blockPos, BlockIDs.Air, true);
+                // Use immediate block update for instant visual feedback
+                return mChunkManager.immediateBlockUpdate(hit.Value.blockPos, BlockIDs.Air, true);
             }
             return false;
         }
@@ -44,6 +45,7 @@ namespace VoxelGame.PlayerScripts
                     Console.WriteLine("ERROR: Place position same as hit position!");
                     return false;
                 }
+
                 if (!isPosInsidePlayer(placePos, playerPos))
                 {
                     if (GetBlock(placePos) != BlockIDs.Air)
@@ -51,13 +53,14 @@ namespace VoxelGame.PlayerScripts
                         return false;
                     }
 
-                    return SetBlock(placePos, mCurrentBlock);
+                    // Use immediate block update for instant visual feedback
+                    return mChunkManager.immediateBlockUpdate(placePos, mCurrentBlock, false);
                 }
             }
             return false;
         }
 
-        // New raycast using DDA. Not sure what all the math does, had to look it up.
+        // Raycast method remains the same
         private (Vector3i blockPos, Vector3i normal)? raycastDDA(Vector3 origin, Vector3 direction)
         {
             direction = Vector3.Normalize(direction);
@@ -152,74 +155,21 @@ namespace VoxelGame.PlayerScripts
             Vector3i normal = new Vector3i();
             switch (side)
             {
-                case 0: 
-                    normal.X = -step.X; 
+                case 0:
+                    normal.X = -step.X;
                     break;
-                case 1: 
-                    normal.Y = -step.Y; 
+                case 1:
+                    normal.Y = -step.Y;
                     break;
-                case 2: 
-                    normal.Z = -step.Z; 
+                case 2:
+                    normal.Z = -step.Z;
                     break;
             }
 
             return (mapPos, normal);
         }
 
-        public bool SetBlock(Vector3i worldPos, byte blockType, bool breakingBlock = false)
-        {
-            if (worldPos.Y < 0 || worldPos.Y >= Constants.CHUNK_HEIGHT)
-                return false;
-
-            ChunkPos chunkPos = new ChunkPos(
-                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
-            );
-
-            Chunk chunk = mChunkManager.GetChunk(chunkPos);
-            if (chunk == null)
-                return false;
-
-            Vector3i localPos = new Vector3i(
-                worldPos.X - chunkPos.X * Constants.CHUNK_SIZE,
-                worldPos.Y,
-                worldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
-            );
-
-            if (!chunk.IsInBounds(localPos))
-                return false;
-
-            byte oldBlock = chunk.Voxels[localPos.X, localPos.Y, localPos.Z];
-            if (oldBlock == BlockIDs.Bedrock)
-            {
-                return false;
-            }
-
-            if (breakingBlock)
-            {
-                VoxelGame.init.WorldAudioManager.PlayBlockBreakSound(BlockRegistry.GetBlock(chunk.Voxels[localPos.X, localPos.Y, localPos.Z]).Material);
-            }
-
-            chunk.Voxels[localPos.X, localPos.Y, localPos.Z] = blockType;
-
-            // Get all chunks that need updating
-            var chunksToUpdate = new List<ChunkPos> { chunkPos };
-
-            if (localPos.X == 0)
-                chunksToUpdate.Add(new ChunkPos(chunkPos.X - 1, chunkPos.Z));
-            if (localPos.X == Constants.CHUNK_SIZE - 1)
-                chunksToUpdate.Add(new ChunkPos(chunkPos.X + 1, chunkPos.Z));
-            if (localPos.Z == 0)
-                chunksToUpdate.Add(new ChunkPos(chunkPos.X, chunkPos.Z - 1));
-            if (localPos.Z == Constants.CHUNK_SIZE - 1)
-                chunksToUpdate.Add(new ChunkPos(chunkPos.X, chunkPos.Z + 1));
-
-            mChunkManager.MarkChunksForUpdate(chunksToUpdate);
-            chunk.Modified = true;
-
-            return true;
-        }
-
+        // Simplified GetBlock method - now just for reading, not updating
         public byte GetBlock(Vector3i worldPos)
         {
             if (worldPos.Y < 0 || worldPos.Y >= Constants.CHUNK_HEIGHT)
@@ -239,6 +189,36 @@ namespace VoxelGame.PlayerScripts
                 worldPos.Y,
                 worldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
             );
+
+            // Handle negative coordinates properly for infinite terrain
+            if (localPos.X < 0)
+            {
+                localPos.X += Constants.CHUNK_SIZE;
+                chunkPos = new ChunkPos(chunkPos.X - 1, chunkPos.Z);
+                chunk = mChunkManager.GetChunk(chunkPos);
+                if (chunk == null) return BlockIDs.Air;
+            }
+            if (localPos.Z < 0)
+            {
+                localPos.Z += Constants.CHUNK_SIZE;
+                chunkPos = new ChunkPos(chunkPos.X, chunkPos.Z - 1);
+                chunk = mChunkManager.GetChunk(chunkPos);
+                if (chunk == null) return BlockIDs.Air;
+            }
+            if (localPos.X >= Constants.CHUNK_SIZE)
+            {
+                localPos.X -= Constants.CHUNK_SIZE;
+                chunkPos = new ChunkPos(chunkPos.X + 1, chunkPos.Z);
+                chunk = mChunkManager.GetChunk(chunkPos);
+                if (chunk == null) return BlockIDs.Air;
+            }
+            if (localPos.Z >= Constants.CHUNK_SIZE)
+            {
+                localPos.Z -= Constants.CHUNK_SIZE;
+                chunkPos = new ChunkPos(chunkPos.X, chunkPos.Z + 1);
+                chunk = mChunkManager.GetChunk(chunkPos);
+                if (chunk == null) return BlockIDs.Air;
+            }
 
             if (chunk.IsInBounds(localPos))
                 return chunk.GetBlock(localPos);

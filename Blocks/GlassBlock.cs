@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using VoxelGame.Utils;
+﻿using VoxelGame.Utils;
 
 namespace VoxelGame.Blocks
 {
@@ -24,5 +19,8 @@ namespace VoxelGame.Blocks
         public TextureCoords InventoryCoords => TopTextureCoords;
         public bool GravityBlock => false;
         public BlockMaterial Material => BlockMaterial.Glass;
+        public bool Transparent => true;
+        public byte LightLevel => 0;
+        public byte LightOpacity => 1;
     }
 }

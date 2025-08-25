@@ -1,24 +1,37 @@
-﻿// The main class that generates the world terrain. | DA | 8/1/25
+﻿// The main class that generates the world terrain. | DA | 8/2/25
 using VoxelGame.Utils;
 
 namespace VoxelGame.World
 {
     public class TerrainGenerator : IDisposable
     {
-        private readonly Noise _mHeightNoise;
+        // Height gene
+        private readonly Noise _mHeightNoise1;    // Base terrain
+        private readonly Noise _mHeightNoise2;    // Large features
+        private readonly Noise _mHeightNoise3;    // Medium details
+        private readonly Noise _mHeightNoise4;    // Fine details
+
         private readonly Noise _mCaveNoise;
+
+        // Biome and ore gen
         private readonly Noise _mBiomeNoise;
         private readonly Noise _mCoalNoise;
         private readonly Noise _mIronNoise;
         private readonly Noise _mGoldNoise;
         private readonly Noise _mDiamondNoise;
+
         private readonly TreeGenerator _mTreeGenerator;
+
+        // Terrain constants
+        private const int SEA_LEVEL = 64;
+        private const int MIN_HEIGHT = 8;
+        private const int MAX_HEIGHT = 120;
 
         private const int MIN_CAVE_DEPTH = 0;
         private const float CAVE_THRESHOLD = 0.6f;
         private const float CAVE_SCALE = 0.1f;
-        private const float TREE_DENSITY = 0.02f;
 
+        // Ore generation constants
         private const float COAL_THRESHOLD = 0.85f;
         private const int COAL_MIN_HEIGHT = 5;
         private const int COAL_MAX_HEIGHT = 95;
@@ -45,16 +58,32 @@ namespace VoxelGame.World
 
         public TerrainGenerator()
         {
-            _mHeightNoise = new Noise();
-            _mHeightNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
-            _mHeightNoise.SetFrequency(0.01f);
+            _mHeightNoise1 = new Noise();
+            _mHeightNoise1.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mHeightNoise1.SetFrequency(0.005f); // Large scale features
+
+            _mHeightNoise2 = new Noise();
+            _mHeightNoise2.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mHeightNoise2.SetFrequency(0.01f);  // Medium scale features
+
+            _mHeightNoise3 = new Noise();
+            _mHeightNoise3.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mHeightNoise3.SetFrequency(0.02f);  // Small scale features
+
+            _mHeightNoise4 = new Noise();
+            _mHeightNoise4.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mHeightNoise4.SetFrequency(0.04f);  // Fine details
 
             _mCaveNoise = new Noise();
             _mCaveNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
             _mCaveNoise.SetFrequency(0.03f);
 
+            // Biome generation
             _mBiomeNoise = new Noise();
+            _mBiomeNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
+            _mBiomeNoise.SetFrequency(0.003f);   // Large biome regions
 
+            // Ore generation
             _mCoalNoise = new Noise();
             _mCoalNoise.SetNoiseType(Noise.NoiseType.OpenSimplex2);
             _mCoalNoise.SetFrequency(0.08f);
@@ -76,7 +105,11 @@ namespace VoxelGame.World
 
         public void init(int seed)
         {
-            _mHeightNoise.SetSeed(seed);
+            _mHeightNoise1.SetSeed(seed);
+            _mHeightNoise2.SetSeed(seed + 100);
+            _mHeightNoise3.SetSeed(seed + 200);
+            _mHeightNoise4.SetSeed(seed + 300);
+
             _mCaveNoise.SetSeed(seed);
             _mTreeGenerator.SetSeed(seed);
             _mBiomeNoise.SetSeed(seed);
@@ -89,6 +122,8 @@ namespace VoxelGame.World
 
         public void GenerateTerrain(Chunk chunk)
         {
+            int[,] heightMap = genHeightMap(chunk);
+
             for (int x = 0; x < Constants.CHUNK_SIZE; x++)
             {
                 for (int z = 0; z < Constants.CHUNK_SIZE; z++)
@@ -96,46 +131,138 @@ namespace VoxelGame.World
                     var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
                     var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
 
-                    var height = (int)(_mHeightNoise.GetNoise(worldX, worldZ) * 8 + 100);
-                    float biomeNoise = _mBiomeNoise.GetNoise(worldX, worldZ);
-                    biomeNoise = (biomeNoise + 1f) / 2f;
+                    int terrainHeight = heightMap[x, z];
 
+                    float biomeNoise = _mBiomeNoise.GetNoise(worldX, worldZ);
+                    biomeNoise = (biomeNoise + 1f) / 2f; // Normalize to 0-1
                     BiomeType biome = GetBiome(biomeNoise);
 
-                    for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
-                    {
-                        byte blockType = BlockIDs.Air;
-
-                        if (y == 0)
-                        {
-                            blockType = BlockIDs.Bedrock;
-                        }
-                        else
-                        {
-                            var caveValue = _mCaveNoise.GetNoise(worldX, y * 2, worldZ);
-                            if (caveValue > CAVE_THRESHOLD && y >= MIN_CAVE_DEPTH)
-                            {
-                                blockType = BlockIDs.Air;
-                            }
-                            else if (y < height - 4)
-                            {
-                                blockType = genOre(worldX, y, worldZ, BlockIDs.Stone);
-                            }
-                            else
-                            {
-                                blockType = genSurfaceBlock(biome, y, height);
-                            }
-                        }
-
-                        chunk.Voxels[x, y, z] = blockType;
-                    }
+                    genColumn(chunk, x, z, worldX, worldZ, terrainHeight, biome);
                 }
             }
 
             _mTreeGenerator.GenerateTrees(chunk);
         }
 
-        private byte genOre(int worldX, int y, int worldZ, byte defaultBlock)
+        private int[,] genHeightMap(Chunk chunk)
+        {
+            int[,] heightMap = new int[Constants.CHUNK_SIZE, Constants.CHUNK_SIZE];
+
+            for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+            {
+                for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                {
+                    var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
+                    var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
+                    
+                    float height = 0f;
+
+                    // Large scale
+                    height += _mHeightNoise1.GetNoise(worldX, worldZ) * 30f;
+
+                    // Medium scale
+                    height += _mHeightNoise2.GetNoise(worldX, worldZ) * 15f;
+
+                    // Small scale
+                    height += _mHeightNoise3.GetNoise(worldX, worldZ) * 8f;
+
+                    // Fine details
+                    height += _mHeightNoise4.GetNoise(worldX, worldZ) * 4f;
+
+                    int finalHeight = (int)(SEA_LEVEL + height);
+                    finalHeight = Math.Max(MIN_HEIGHT, Math.Min(MAX_HEIGHT, finalHeight));
+
+                    heightMap[x, z] = finalHeight;
+                }
+            }
+
+            return heightMap;
+        }
+
+        private void genColumn(Chunk chunk, int x, int z, int worldX, int worldZ, int terrainHeight, BiomeType biome)
+        {
+            for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
+            {
+                byte blockType = BlockIDs.Air;
+
+                if (y == 0)
+                {
+                    // Bedrock
+                    blockType = BlockIDs.Bedrock;
+                }
+                else if (y <= terrainHeight)
+                {
+                    // Caves
+                    if (shouldMakeCaves(worldX, y, worldZ))
+                    {
+                        blockType = BlockIDs.Air;
+                    }
+                    else
+                    {
+                        // Terrain blocks
+                        blockType = genTerrainBlocks(worldX, y, worldZ, terrainHeight, biome);
+                    }
+                }
+                else if (y <= SEA_LEVEL && biome != BiomeType.Desert)
+                {
+
+                    blockType = BlockIDs.Air; // TODO: replace with water in the future
+                }
+
+                chunk.Voxels[x, y, z] = blockType;
+            }
+        }
+
+        private bool shouldMakeCaves(int worldX, int y, int worldZ)
+        {
+            var caveValue = _mCaveNoise.GetNoise(worldX, y * 2, worldZ);
+            return caveValue > CAVE_THRESHOLD && y >= MIN_CAVE_DEPTH;
+        }
+
+        private byte genTerrainBlocks(int worldX, int y, int worldZ, int terrainHeight, BiomeType biome)
+        {
+            // Surface
+            if (y == terrainHeight)
+            {
+                return getSurfaceBlock(biome);
+            }
+            // Sub-surface
+            else if (y >= terrainHeight - 3)
+            {
+                return getSubSurfaceBlock(biome);
+            }
+            // Deep underground
+            else
+            {
+                return genOres(worldX, y, worldZ, BlockIDs.Stone);
+            }
+        }
+
+        private byte getSurfaceBlock(BiomeType biome)
+        {
+            return biome switch
+            {
+                BiomeType.Desert => BlockIDs.Sand,
+                BiomeType.Forest => BlockIDs.Grass,
+                BiomeType.Plains => BlockIDs.Grass,
+                BiomeType.Swamp => BlockIDs.Grass,
+                _ => BlockIDs.Grass
+            };
+        }
+
+        private byte getSubSurfaceBlock(BiomeType biome)
+        {
+            return biome switch
+            {
+                BiomeType.Desert => BlockIDs.Sand,
+                BiomeType.Forest => BlockIDs.Dirt,
+                BiomeType.Plains => BlockIDs.Dirt,
+                BiomeType.Swamp => BlockIDs.Dirt,
+                _ => BlockIDs.Dirt
+            };
+        }
+
+        private byte genOres(int worldX, int y, int worldZ, byte defaultBlock)
         {
             // Diamond
             if (y >= DIAMOND_MIN_HEIGHT && y <= DIAMOND_MAX_HEIGHT)
@@ -180,30 +307,6 @@ namespace VoxelGame.World
             return defaultBlock;
         }
 
-        private byte genSurfaceBlock(BiomeType biome, int y, int height)
-        {
-            switch (biome)
-            {
-                case BiomeType.Desert:
-                    if (y < height - 1)
-                        return BlockIDs.Stone;
-                    else if (y < height)
-                        return BlockIDs.Sand;
-                    break;
-
-                case BiomeType.Forest:
-                case BiomeType.Plains:
-                case BiomeType.Swamp:
-                    if (y < height - 1)
-                        return BlockIDs.Dirt;
-                    else if (y < height)
-                        return BlockIDs.Grass;
-                    break;
-            }
-
-            return BlockIDs.Air;
-        }
-
         public BiomeType GetBiome(float biomeNoise)
         {
             if (biomeNoise < 0.25f)
@@ -218,7 +321,10 @@ namespace VoxelGame.World
 
         public void Dispose()
         {
-            _mHeightNoise?.Dispose();
+            _mHeightNoise1?.Dispose();
+            _mHeightNoise2?.Dispose();
+            _mHeightNoise3?.Dispose();
+            _mHeightNoise4?.Dispose();
             _mCaveNoise?.Dispose();
             _mBiomeNoise?.Dispose();
             _mCoalNoise?.Dispose();

@@ -6,10 +6,14 @@ in vec3 Normal;
 in vec2 TexCoord;
 in float TextureID;
 in float LightValue;
+in float FragDistance;
 
 uniform vec3 lightDir;
 uniform vec3 viewPos;
 uniform sampler2D blockTexture;
+uniform float fogStart;
+uniform float fogEnd;
+uniform vec3 fogColor;
 
 void main() {
     vec4 texColor = texture(blockTexture, TexCoord);
@@ -30,5 +34,8 @@ void main() {
 
     result *= LightValue;
 
-    FragColor = vec4(result, texColor.a);
+    float fogFactor = clamp((fogEnd - FragDistance) / (fogEnd - fogStart), 0.0, 1.0);
+    vec3 finalColor = mix(fogColor, result, fogFactor);
+
+    FragColor = vec4(finalColor, texColor.a);
 }

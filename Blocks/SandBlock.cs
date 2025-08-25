@@ -17,5 +17,8 @@ namespace VoxelGame.Blocks
         public TextureCoords InventoryCoords => TopTextureCoords;
         public bool GravityBlock => true;
         public BlockMaterial Material => BlockMaterial.Sand;
+        public bool Transparent => false;
+        public byte LightLevel => 0;
+        public byte LightOpacity => 15;
     }
 }

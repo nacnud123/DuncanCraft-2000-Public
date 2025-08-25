@@ -12,6 +12,7 @@ using VoxelGame.Utils;
 using VoxelGame.World;
 using VoxelGame.Saving;
 using VoxelGame.Blocks;
+using VoxelGame.Managers;
 
 namespace VoxelGame
 {
@@ -27,10 +28,12 @@ namespace VoxelGame
         private const int FORCE_GC_INTERVAL = 18000;
         // ---------
 
-        // Components
-        private Shader? mShaderProgram;
-        private Texture? mWorldTexture;
+        // Managers
+        private GameStateManager mStateManager;
+        private ResourceManager mResourceManager;
+        // ---------
 
+        // Components
         private Player mPlayer;
         private BlockHighlighter mBlockHighlighter;
         private TerrainGenerator mTerrainGen;
@@ -52,7 +55,6 @@ namespace VoxelGame
         // ---------
 
         // World
-        private GameState mCurrentState;
         private string mCurrentWorldName;
         private WorldSaveData mCurrentWorldData;
 
@@ -80,14 +82,15 @@ namespace VoxelGame
             : base(gameWindowSettings, nativeWindowSettings)
         {
             init = this;
-            mCurrentState = GameState.TitleScreen;
+            mStateManager = new GameStateManager();
+            mResourceManager = new ResourceManager();
         }
 
         protected override void OnLoad()
         {
             base.OnLoad();
 
-            GL.ClearColor(0.2f, 0.3f, 0.6f, 1.0f);
+            GL.ClearColor(0.6f, 0.8f, 1.0f, 1.0f);
             GL.Enable(EnableCap.DepthTest);
             GL.Enable(EnableCap.CullFace);
             GL.CullFace(CullFaceMode.Back);
@@ -107,8 +110,21 @@ namespace VoxelGame
         private void startGame(string worldName)
         {
             mCurrentWorldName = worldName;
-            mCurrentState = GameState.InGame;
+            mStateManager.ChangeState(GameState.InGame);
 
+            // Update the last played timestamp for this world
+            Serialization.UpdateLastPlayed(worldName);
+
+            initWorld(worldName);
+            initGameComponents();
+            initUI();
+
+            GL.ClearColor(0.5f, 0.8f, 1.0f, 1.0f);
+            CursorState = CursorState.Grabbed;
+        }
+
+        private void initWorld(string worldName)
+        {
             mTerrainGen = new TerrainGenerator();
             Serialization.s_WorldName = worldName;
 
@@ -125,131 +141,130 @@ namespace VoxelGame
             }
 
             mTerrainGen.init(WorldSeed);
-
             _ChunkManager = new ChunkManager();
+        }
 
-            mShaderProgram = new Shader("Shaders/world_shader.vert", "Shaders/world_shader.frag");
-            mWorldTexture = Texture.LoadFromFile("Resources/world.png");
-            mWorldTexture.Use(TextureUnit.Texture0);
-
+        private void initGameComponents()
+        {
+            mResourceManager.LoadGameResources();
             mUI_Game = new GameUI();
             mBlockHighlighter = new BlockHighlighter();
+            mPlayer = new Player(_ChunkManager, Size);
+        }
 
+        private void initUI()
+        {
             UI_PauseMenu = new PauseMenu();
-            UI_Hotbar = new Hotbar(mWorldTexture);
-            UI_Inventory = new Inventory(mWorldTexture);
+            UI_Hotbar = new Hotbar(mResourceManager.WorldTexture);
+            UI_Inventory = new Inventory(mResourceManager.WorldTexture);
 
-            UI_PauseMenu.OnPauseQuitGame += () => QuitToMainMenu();
+            UI_PauseMenu.OnPauseQuitGame += () => quitToMainMenu();
             UI_PauseMenu.OnResumeGame += () => ResumeGame();
 
             setupHotbarBlocks();
-
-            mPlayer = new Player(_ChunkManager, Size);
-
-            GL.ClearColor(0.5f, 0.8f, 1.0f, 1.0f);
-
-            CursorState = CursorState.Grabbed;
         }
 
-        // TODO: refactor this code, a little spaghetti
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
             mImGuiController.Update(this, (float)args.Time);
 
-            if (mDevMode)
+            updateDebugInfo(args);
+            handleInput();
+            updateGameLogic(args);
+        }
+
+        private void updateDebugInfo(FrameEventArgs args)
+        {
+            if (!mDevMode) return;
+
+            mFrameCounter++;
+            mFpsUpdateTimer += args.Time;
+            mMemoryCheckCounter++;
+
+            if (mFpsUpdateTimer >= 1.0)
             {
-                mFrameCounter++;
-                mFpsUpdateTimer += args.Time;
-                mMemoryCheckCounter++;
+                updateFPSDisplay();
+            }
 
-                if (mFpsUpdateTimer >= 1.0)
+            memoryManagement();
+        }
+
+        private void updateFPSDisplay()
+        {
+            long currentMemory = GC.GetTotalMemory(false) / 1024 / 1024;
+            long memoryDelta = currentMemory - mLastMemoryUsage;
+            string tickStats = _ChunkManager?.GetTickSystemStats() ?? "";
+            
+            Title = $"DuncanCraft 2000 - | {tickStats} | FPS: {mFrameCounter}";
+
+            mFrameCounter = 0;
+            mFpsUpdateTimer = 0.0;
+            mLastMemoryUsage = currentMemory;
+        }
+
+        private void memoryManagement()
+        {
+            if (mMemoryCheckCounter % MEMORY_CHECK_INTERVAL == 0)
+            {
+                long currentMemory = GC.GetTotalMemory(false);
+                long memoryThreshold = 800 * 1024 * 1024;
+
+                if (currentMemory > memoryThreshold || mMemoryCheckCounter % FORCE_GC_INTERVAL == 0)
                 {
-                    long currentMemory = GC.GetTotalMemory(false) / 1024 / 1024; // MB
-                    long memoryDelta = currentMemory - mLastMemoryUsage;
-
-                    Title = $"DuncanCraft 2000 - FPS: {mFrameCounter} | RAM: {currentMemory}MB ({memoryDelta:+#;-#;0}MB)";
-
-                    mFrameCounter = 0;
-                    mFpsUpdateTimer = 0.0;
-                    mLastMemoryUsage = currentMemory;
-                }
-
-                // Garbage collection
-                if (mMemoryCheckCounter % MEMORY_CHECK_INTERVAL == 0)
-                {
-                    long currentMemory = GC.GetTotalMemory(false);
-
-                    if (currentMemory > 500 * 1024 * 1024 ||
-                        mMemoryCheckCounter % FORCE_GC_INTERVAL == 0)
-                    {
-                        GC.Collect(0, GCCollectionMode.Optimized);
-                        Console.WriteLine($"Forced GC: {currentMemory / 1024 / 1024}MB -> {GC.GetTotalMemory(false) / 1024 / 1024}MB");
-                    }
-                }
-
-                if (mMemoryCheckCounter >= FORCE_GC_INTERVAL)
-                {
-                    mMemoryCheckCounter = 0;
+                    GC.Collect(2, GCCollectionMode.Forced, true, true);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect(2, GCCollectionMode.Forced, true, true);
+                    
+                    long afterGC = GC.GetTotalMemory(false);
+                    Console.WriteLine($"GC: {currentMemory / 1024 / 1024}MB -> {afterGC / 1024 / 1024}MB (Freed: {(currentMemory - afterGC) / 1024 / 1024}MB)");
                 }
             }
 
-            if (mCurrentState == GameState.TitleScreen)
+            if (mMemoryCheckCounter >= FORCE_GC_INTERVAL)
             {
-                if (KeyboardState.IsKeyDown(Keys.Escape))
-                    Close();
+                mMemoryCheckCounter = 0;
             }
-            else if (mCurrentState == GameState.InGame || mCurrentState == GameState.Inventory || mCurrentState == GameState.Pause)
+        }
+
+        private void handleInput()
+        {
+            if (KeyboardState.IsKeyPressed(Keys.Escape))
             {
-                if (KeyboardState.IsKeyPressed(Keys.Escape))
-                {
-                    if (mCurrentState == GameState.Pause || mCurrentState == GameState.Inventory)
-                        ResumeGame();
-                    else
-                    {
-                        CursorState = CursorState.Normal;
-                        mCurrentState = GameState.Pause;
-                        mPlayer._InputManager.OnGamePaused();
-                        return;
-                    }
-                }
+                mStateManager.HandleEscapeKey(this);
+            }
 
-                if (KeyboardState.IsKeyPressed(Keys.I) && mCurrentState != GameState.Pause)
-                {
-                    if (mCurrentState == GameState.Inventory)
-                        ResumeGame();
-                    else
-                    {
-                        CursorState = CursorState.Normal;
-                        mCurrentState = GameState.Inventory;
-                        mPlayer._InputManager.OnGamePaused();
-                        return;
-                    }
-                }
+            if (KeyboardState.IsKeyPressed(Keys.I))
+            {
+                mStateManager.HandleInventoryKey(this);
+            }
 
-                if (KeyboardState.IsKeyPressed(Keys.X))
-                {
-                    mWireframeMode = !mWireframeMode;
-                    if (mWireframeMode)
-                    {
-                        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-                    }
-                    else
-                    {
-                        GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-                    }
-                }
+            if (KeyboardState.IsKeyPressed(Keys.X) && mStateManager.ShouldHandleInput())
+            {
+                mWireframeMode = !mWireframeMode;
+                GL.PolygonMode(MaterialFace.FrontAndBack, mWireframeMode ? PolygonMode.Line : PolygonMode.Fill);
+            }
 
-                float deltaTime = (float)args.Time;
+            if (KeyboardState.IsKeyPressed(Keys.Delete) && mStateManager.CurrentState == GameState.TitleScreen)
+            {
+                UI_TitleScreen?.HandleDeleteKey();
+            }
+        }
 
-                mBlockHighlighter.Update(mPlayer._Camera, _ChunkManager);
+        private void updateGameLogic(FrameEventArgs args)
+        {
+            if (!mStateManager.ShouldHandleInput()) return;
 
-                mPlayer._InputManager.KeyboardUpdate(KeyboardState, args);
-                _ChunkManager.UpdateChunks(mPlayer._Camera.Position);
-                _ChunkManager.UploadPendingMeshes();
+            float deltaTime = (float)args.Time;
 
-                if (mCurrentState == GameState.InGame)
-                    mPlayer.Update(deltaTime);
+            mBlockHighlighter?.Update(mPlayer._Camera, _ChunkManager);
+            mPlayer?._InputManager.KeyboardUpdate(KeyboardState, args);
+            _ChunkManager?.UpdateChunks(mPlayer._Camera.Position);
+            _ChunkManager?.UploadPendingMeshes();
+
+            if (mStateManager.ShouldUpdatePlayer())
+            {
+                mPlayer?.Update(deltaTime);
             }
         }
 
@@ -257,7 +272,7 @@ namespace VoxelGame
         {
             base.OnMouseMove(e);
 
-            if (mCurrentState == GameState.InGame && mPlayer != null)
+            if (mStateManager.IsInGame() && mPlayer != null)
             {
                 mPlayer._InputManager.MouseUpdate(MouseState);
             }
@@ -267,7 +282,7 @@ namespace VoxelGame
         {
             base.OnMouseDown(e);
 
-            if (mCurrentState == GameState.InGame && mPlayer != null)
+            if (mStateManager.IsInGame() && mPlayer != null)
             {
                 mPlayer._InputManager.HandleMouseDown(e);
             }
@@ -279,7 +294,7 @@ namespace VoxelGame
 
             mImGuiController.MouseScroll(new Vector2(e.OffsetX, e.OffsetY));
 
-            if (mCurrentState == GameState.InGame || mCurrentState == GameState.Inventory && mPlayer != null)
+            if ((mStateManager.CurrentState == GameState.InGame || mStateManager.CurrentState == GameState.Inventory) && mPlayer != null)
             {
                 mPlayer._InputManager.HandleMouseScroll(e);
             }
@@ -295,62 +310,55 @@ namespace VoxelGame
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
-
-            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-
-            if (mCurrentState == GameState.TitleScreen)
+            
+            if (mStateManager.CurrentState == GameState.TitleScreen)
             {
-                UI_TitleScreen.Render();
-                mImGuiController.Render();
+                GL.ClearColor(0.2f, 0.3f, 0.6f, 1.0f);
+                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                UI_TitleScreen?.Render();
+                mImGuiController?.Render();
             }
-            else if (mCurrentState == GameState.InGame || mCurrentState == GameState.Pause || mCurrentState == GameState.Inventory)
+            else if (mStateManager.IsGameplayState())
             {
-                mWorldTexture?.Use(TextureUnit.Texture0);
-                mShaderProgram?.Use();
-
-                Matrix4 model = Matrix4.Identity;
-                Matrix4 view = mPlayer._Camera.GetViewMatrix();
-                Matrix4 projection = mPlayer._Camera.GetProjectionMatrix();
-
-                int modelLoc = GL.GetUniformLocation(mShaderProgram.Handle, "model");
-                int viewLoc = GL.GetUniformLocation(mShaderProgram.Handle, "view");
-                int projLoc = GL.GetUniformLocation(mShaderProgram.Handle, "projection");
-                int lightDirLoc = GL.GetUniformLocation(mShaderProgram.Handle, "lightDir");
-                int viewPosLoc = GL.GetUniformLocation(mShaderProgram.Handle, "viewPos");
-
-                GL.UniformMatrix4(modelLoc, false, ref model);
-                GL.UniformMatrix4(viewLoc, false, ref view);
-                GL.UniformMatrix4(projLoc, false, ref projection);
-                GL.Uniform3(lightDirLoc, new Vector3(0.2f, -1.0f, 0.3f));
-                GL.Uniform3(viewPosLoc, mPlayer._Camera.Position);
-
-                _ChunkManager.RenderChunks(mPlayer._Camera.Position, mPlayer._Camera.Front, mPlayer._Camera.Up, mPlayer._Camera.Fov, mPlayer._Camera.AspectRatio);
-
-                mBlockHighlighter.Render(view, projection);
-
-                if (mCurrentState == GameState.Pause)
-                {
-                    UI_PauseMenu.Render();
-                }
-                else if (mCurrentState == GameState.Inventory)
-                {
-                    UI_Inventory.Render();
-                }
-
-                if (mUI_Game != null)
-                {
-                    mUI_Game.Render($"World: {mCurrentWorldName} | {UIText} | {CurrentChunkPosition}");
-                }
-
-                if (UI_Hotbar != null)
-                {
-                    UI_Hotbar.Render(mProjection, Size);
-                }
-
-                mImGuiController.Render();
+                GL.ClearColor(0.6f, 0.8f, 1.0f, 1.0f);
+                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                renderWorld();
+                renderUI();
+                mImGuiController?.Render();
             }
 
             SwapBuffers();
+        }
+
+        private void renderWorld()
+        {
+            mResourceManager.UseWorldResources();
+
+            Matrix4 model = Matrix4.Identity;
+            Matrix4 view = mPlayer._Camera.GetViewMatrix();
+            Matrix4 projection = mPlayer._Camera.GetProjectionMatrix();
+
+            mResourceManager.SetWorldShaderUniforms(model, view, projection, mPlayer._Camera.Position);
+
+            _ChunkManager?.RenderChunks(mPlayer._Camera.Position, mPlayer._Camera.Front, mPlayer._Camera.Up, mPlayer._Camera.Fov, mPlayer._Camera.AspectRatio);
+
+            mBlockHighlighter?.Render(view, projection);
+        }
+
+        private void renderUI()
+        {
+            switch (mStateManager.CurrentState)
+            {
+                case GameState.Pause:
+                    UI_PauseMenu?.Render();
+                    break;
+                case GameState.Inventory:
+                    UI_Inventory?.Render();
+                    break;
+            }
+
+            mUI_Game?.Render($"World: {mCurrentWorldName} | {UIText} | {CurrentChunkPosition}");
+            UI_Hotbar?.Render(mProjection, Size);
         }
 
         protected override void OnResize(ResizeEventArgs e)
@@ -383,38 +391,48 @@ namespace VoxelGame
             UI_Hotbar.SetBlockInSlot(9, BlockRegistry.GetBlock(BlockIDs.Blue));
         }
 
-        private void QuitToMainMenu()
+        private void quitToMainMenu()
+        {
+            saveActiveChunks();
+            cleanup();
+            gotoTitleScreen();
+        }
+
+        private void saveActiveChunks()
         {
             if (_ChunkManager?._Chunks != null)
             {
-                foreach (var activeChunks in _ChunkManager._Chunks)
+                foreach (var activeChunk in _ChunkManager._Chunks)
                 {
-                    if (activeChunks.Value.Modified)
+                    if (activeChunk.Value.Modified)
                     {
-                        Serialization.SaveChunk(activeChunks.Value);
+                        Serialization.SaveChunk(activeChunk.Value);
                     }
                 }
             }
+        }
 
+        private void cleanup()
+        {
             _ChunkManager?.Dispose();
-            mShaderProgram?.Dispose();
+            mResourceManager?.Dispose();
             mUI_Game?.Dispose();
             mBlockHighlighter?.Dispose();
             mTerrainGen?.Dispose();
-            mWorldTexture?.Dispose();
 
             _ChunkManager = null;
-            mShaderProgram = null;
             mUI_Game = null;
             mBlockHighlighter = null;
             mTerrainGen = null;
-            mWorldTexture = null;
             mPlayer = null;
             UI_PauseMenu = null;
             UI_Hotbar = null;
             UI_Inventory = null;
+        }
 
-            if(UI_TitleScreen == null)
+        private void gotoTitleScreen()
+        {
+            if (UI_TitleScreen == null)
             {
                 UI_TitleScreen = new TitleScreen();
                 UI_TitleScreen.OnStartGame += startGame;
@@ -422,8 +440,7 @@ namespace VoxelGame
             }
 
             UI_TitleScreen.RefreshWorldList();
-
-            mCurrentState = GameState.TitleScreen;
+            mStateManager.ChangeState(GameState.TitleScreen);
             CursorState = CursorState.Normal;
             GL.ClearColor(0.2f, 0.3f, 0.6f, 1.0f);
         }
@@ -432,21 +449,12 @@ namespace VoxelGame
         {
             base.OnUnload();
 
-            if (mCurrentState != GameState.TitleScreen)
+            if (mStateManager.CurrentState != GameState.TitleScreen)
             {
-                _ChunkManager?.Dispose();
-                mShaderProgram?.Dispose();
-                mUI_Game?.Dispose();
-                mBlockHighlighter?.Dispose();
-                WorldAudioManager?.Dispose();
-                mTerrainGen?.Dispose();
-                mWorldTexture?.Dispose();
+                cleanup();
             }
-            else
-            {
-                WorldAudioManager?.Dispose();
-            }
-
+            
+            WorldAudioManager?.Dispose();
             mImGuiController?.Dispose();
         }
 
@@ -457,10 +465,24 @@ namespace VoxelGame
             UIText = $"Current Block: {block.Name}";
         }
 
-        private void ResumeGame()
+        public void ResumeGame()
         {
-            mCurrentState = GameState.InGame;
+            mStateManager.ChangeState(GameState.InGame);
             CursorState = CursorState.Grabbed;
+        }
+
+        public void PauseGame()
+        {
+            CursorState = CursorState.Normal;
+            mStateManager.ChangeState(GameState.Pause);
+            mPlayer._InputManager.OnGamePaused();
+        }
+
+        public void OpenInventory()
+        {
+            CursorState = CursorState.Normal;
+            mStateManager.ChangeState(GameState.Inventory);
+            mPlayer._InputManager.OnGamePaused();
         }
     }
 }
