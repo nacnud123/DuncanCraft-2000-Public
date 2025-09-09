@@ -2,15 +2,15 @@ using DuncanCraft.Utils;
 
 namespace DuncanCraft.Blocks
 {
-    public class SlabBlock : IBlock
+    public class FlowerBlock : IBlock
     {
-        public byte ID => 6;
+        public byte ID => 7;
 
-        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(2, 2);
+        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(4, 1);
         public TextureCoords BottomTextureCoords => TopTextureCoords;
         public TextureCoords SideTextureCoords => TopTextureCoords;
 
-        public string Name => "Slab";
+        public string Name => "Flower";
         
         public byte LightOpacity => 0;
         

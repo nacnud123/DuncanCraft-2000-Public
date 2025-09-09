@@ -1,13 +1,13 @@
-﻿// A helper class, much like Shader, meant to simplify loading textures. | DA | 8/1/25
+﻿// Main texture class, handles stuff like loading in the texture, and disposing of it | DA | 9/4/25
 using OpenTK.Graphics.OpenGL4;
 using PixelFormat = OpenTK.Graphics.OpenGL4.PixelFormat;
 using StbImageSharp;
 
-namespace VoxelGame.Utils
+namespace DuncanCraft.Utils
 {
     public class Texture : IDisposable
     {
-        public readonly int Handle;
+        public readonly int _Handle;
         public int Width { get; private set; }
         public int Height { get; private set; }
 
@@ -15,7 +15,7 @@ namespace VoxelGame.Utils
 
         public Texture(int glHandle, int width = 0, int height = 0)
         {
-            Handle = glHandle;
+            _Handle = glHandle;
             Width = width;
             Height = height;
         }
@@ -54,7 +54,7 @@ namespace VoxelGame.Utils
         public void Use(TextureUnit unit)
         {
             GL.ActiveTexture(unit);
-            GL.BindTexture(TextureTarget.Texture2D, Handle);
+            GL.BindTexture(TextureTarget.Texture2D, _Handle);
         }
 
         public void Dispose()
@@ -71,7 +71,7 @@ namespace VoxelGame.Utils
                 {
                     try
                     {
-                        GL.DeleteTexture(Handle);
+                        GL.DeleteTexture(_Handle);
                     }
                     catch
                     {

@@ -1,23 +1,18 @@
-﻿// Holds data related to vertexes, stuff like the position and lighting data. | DA | 8/1/25
+﻿// Holds stuff related to blocks, like position and texture coords
 using OpenTK.Mathematics;
-
-namespace VoxelGame.Utils
+namespace DuncanCraft.Utils
 {
     public struct Vertex
     {
         public Vector3 Position;
-        public Vector3 Normal;
+        public Vector3 Color;
         public Vector2 TexCoord;
-        public float TextureID;
-        public float LightValue;
 
-        public Vertex(Vector3 position, Vector3 normal, Vector2 texCoord, float textureId, float lightValue = 1.0f)
+        public Vertex(Vector3 position, Vector3 color, Vector2 texCoord)
         {
             Position = position;
-            Normal = normal;
+            Color = color;
             TexCoord = texCoord;
-            TextureID = textureId;
-            LightValue = lightValue;
         }
     }
 }

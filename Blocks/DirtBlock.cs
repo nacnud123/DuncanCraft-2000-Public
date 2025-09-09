@@ -1,68 +1,53 @@
-﻿using OpenTK.Mathematics;
-using VoxelGame.Utils;
-using VoxelGame.Ticking;
-using VoxelGame.World;
+using DuncanCraft.Utils;
+using DuncanCraft.World;
+using System;
 
-namespace VoxelGame.Blocks
+namespace DuncanCraft.Blocks
 {
     public class DirtBlock : IBlock, IRandomTickable
     {
-        public int ID => 2;
+        public byte ID => 2;
 
         public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(1, 1);
 
         public TextureCoords BottomTextureCoords => TopTextureCoords;
         public TextureCoords SideTextureCoords => TopTextureCoords;
-        public bool IsSolid => true;
 
         public string Name => "Dirt";
-
-        public TextureCoords InventoryCoords => TopTextureCoords;
-        public bool GravityBlock => false;
-        public BlockMaterial Material => BlockMaterial.Dirt;
-        public bool Transparent => false;
-        public byte LightLevel => 0;
+        
         public byte LightOpacity => 15;
-
-        public void OnRandomTick(Vector3i worldPos, WorldTickSystem tickSystem, ChunkManager chunkManager)
+        
+        public byte LightValue => 0;
+        
+        public void OnRandomTick(GameWorld world, int x, int y, int z, Random random)
         {
-            Vector3i[] adjacentPositions =
-            [
-                new Vector3i(worldPos.X + 1, worldPos.Y, worldPos.Z),
-                new Vector3i(worldPos.X - 1, worldPos.Y, worldPos.Z),
-                new Vector3i(worldPos.X, worldPos.Y, worldPos.Z + 1),
-                new Vector3i(worldPos.X, worldPos.Y, worldPos.Z - 1)
-            ];
+            if (y + 1 < GameWorld.WORLD_HEIGHT && world.GetBlock(x, y + 1, z) != BlockIDs.Air)
+                return;
 
-            foreach (Vector3i adjacentPos in adjacentPositions)
+            bool hasGrassNeighbor = false;
+
+            // Check North, South, East, West neighbors
+            int[] dx = { 0, 0, 1, -1 };
+            int[] dz = { 1, -1, 0, 0 };
+
+            for (int i = 0; i < 4; i++)
             {
-                ChunkPos chunkPos = new ChunkPos(
-                    (int)System.Math.Floor(adjacentPos.X / (float)Constants.CHUNK_SIZE),
-                    (int)System.Math.Floor(adjacentPos.Z / (float)Constants.CHUNK_SIZE)
-                );
+                int neighborX = x + dx[i];
+                int neighborZ = z + dz[i];
 
-                if (chunkManager._Chunks.TryGetValue(chunkPos, out var chunk))
+                if (world.IsPositionValid(neighborX, y, neighborZ))
                 {
-                    Vector3i localPos = new Vector3i(
-                        adjacentPos.X - chunkPos.X * Constants.CHUNK_SIZE,
-                        adjacentPos.Y,
-                        adjacentPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
-                    );
-
-                    if (localPos.X < 0) localPos.X += Constants.CHUNK_SIZE;
-                    if (localPos.Z < 0) localPos.Z += Constants.CHUNK_SIZE;
-
-                    if (chunk.IsInBounds(localPos))
+                    if (world.GetBlock(neighborX, y, neighborZ) == BlockIDs.Grass)
                     {
-                        byte adjacentBlock = chunk.Voxels[localPos.X, localPos.Y, localPos.Z];
-                        
-                        if (adjacentBlock == BlockIDs.Grass)
-                        {
-                            tickSystem.QueueBlockUpdate(worldPos, BlockIDs.Grass);
-                            return;
-                        }
+                        hasGrassNeighbor = true;
+                        break;
                     }
                 }
+            }
+
+            if (hasGrassNeighbor)
+            {
+                world.SetBlock(x, y, z, BlockIDs.Grass);
             }
         }
     }

@@ -1,491 +1,779 @@
-﻿// This is the main chunk class, holds stuff like the blocks found in the chunk, the verticies and stuff related to OpenGL, and some lighting data. | DA | 8/25/25
-using OpenTK.Graphics.OpenGL4;
+// Main chunk script, has stuff related to position and what blocks are in the chunk | DA | 9/4/25
+using DuncanCraft.Blocks;
+using DuncanCraft.Lighting;
+using DuncanCraft.Utils;
 using OpenTK.Mathematics;
-using VoxelGame.Blocks;
-using VoxelGame.Utils;
-using VoxelGame.Lighting;
-using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 
-namespace VoxelGame.World
+namespace DuncanCraft.World
 {
-    public class Chunk : IDisposable
+    public class ChunkMesh
     {
-        public ChunkPos Position { get; }
-        public byte[,,] Voxels { get; set; }
+        public List<Vertex> Vertices { get; set; } = new();
+        public bool IsReady { get; set; }
+        public int TriangleCount => Vertices.Count / 3;
+    }
 
-        public byte[,,] SunlightLevels { get; set; }
-        public byte[,,] BlockLightLevels { get; set; }
+    public class Chunk
+    {
 
-        public List<Vertex>? Vertices { get; private set; }
-        public List<uint>? Indices { get; private set; }
+        public int X { get; }
+        public int Z { get; }
+        public ChunkState State { get; private set; }
 
-        public int VAO { get; private set; }
-        public int VBO { get; private set; }
-        public int EBO { get; private set; }
+        private readonly byte[,,] _mBlocks;
+        private readonly object _mLockObject = new();
+        private bool mIsDirty;
+        private ChunkMesh? mCurrentMesh;
+        private volatile bool _needsMeshRebuild;
 
-        private int mIndexCount = 0;
-        private int mCurrentVBOSize = 0;
-        private int mCurrentEBOSize = 0;
-        private bool mVertexAttribsSet = false;
+        // Lighting data storage
+        private readonly NibbleArray _mSkyLightMap;
+        private readonly NibbleArray _mBlockLightMap;
+        private readonly byte[] _mHeightMap;
+        private int mLowestBlockHeight;
 
-        public bool MeshGenerated;
-        public bool MeshUploaded;
-        public bool TerrainGenerated;
-        public bool Modified = false;
-
-        private bool mDisposed = false;
-
-        public byte Biome;
-
-        private Vector3 mChunkWorldOffset = new Vector3();
-
-        private ChunkMeshGenerator mMeshGenerator;
-
-        private bool mOpenGLMade = false;
-
-        public Chunk(ChunkPos position, bool generateTerrain = true)
+        public Chunk(int x, int z)
         {
-            Position = position;
-            Voxels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
-            SunlightLevels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
-            BlockLightLevels = new byte[Constants.CHUNK_SIZE, Constants.CHUNK_HEIGHT, Constants.CHUNK_SIZE];
+            X = x;
+            Z = z;
+            
+            _mBlocks = new byte[GameConstants.CHUNK_SIZE, GameConstants.CHUNK_HEIGHT, GameConstants.CHUNK_SIZE];
+            State = ChunkState.Empty;
+            mIsDirty = true;
+            _needsMeshRebuild = true;
 
-            Vertices = null;
-            Indices = null;
+            // Init lighting storage
+            int totalBlocks = GameConstants.CHUNK_SIZE * GameConstants.CHUNK_HEIGHT * GameConstants.CHUNK_SIZE;
+            _mSkyLightMap = new NibbleArray(totalBlocks);
+            _mBlockLightMap = new NibbleArray(totalBlocks);
 
-            if (generateTerrain)
-            {
-                generateTerrainSync();
-                TerrainGenerated = true;
-            }
-            else
-            {
-                TerrainGenerated = false;
-            }
-
-            makeOpenGLStuff();
-
-            mChunkWorldOffset = new Vector3(
-                Position.X * Constants.CHUNK_SIZE,
-                0,
-                Position.Z * Constants.CHUNK_SIZE
-            );
+            _mHeightMap = new byte[GameConstants.CHUNK_SIZE * GameConstants.CHUNK_SIZE];
+            mLowestBlockHeight = GameConstants.CHUNK_HEIGHT;
         }
 
-        private void makeOpenGLStuff()
+        public byte GetBlock(int x, int y, int z)
         {
-            if (!mOpenGLMade)
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || y < 0 || y >= GameConstants.CHUNK_HEIGHT || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return BlockIDs.Air;
+
+            lock (_mLockObject)
             {
-                VAO = GL.GenVertexArray();
-                VBO = GL.GenBuffer();
-                EBO = GL.GenBuffer();
-                mOpenGLMade = true;
+                return _mBlocks[x, y, z];
             }
         }
 
-        private void generateTerrainSync()
+        public void SetBlock(int x, int y, int z, byte block)
         {
-            VoxelGame.init.TerrainGen.GenerateTerrain(this);
-        }
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || y < 0 || y >= GameConstants.CHUNK_HEIGHT || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool isVoxelSolid(int x, int y, int z, ChunkManager chunkManager)
-        {
-            if (x >= 0 && x < Constants.CHUNK_SIZE && y >= 0 && y < Constants.CHUNK_HEIGHT && z >= 0 && z < Constants.CHUNK_SIZE)
+            lock (_mLockObject)
             {
-                return BlockRegistry.GetBlock(Voxels[x, y, z]).IsSolid;
-            }
-
-            // If outside Y bounds, consider as air
-            if (y < 0 || y >= Constants.CHUNK_HEIGHT)
-            {
-                return false;
-            }
-
-            // Calculate world position for cross-chunk lookup
-            Vector3i worldPos = new Vector3i(
-                Position.X * Constants.CHUNK_SIZE + x,
-                y,
-                Position.Z * Constants.CHUNK_SIZE + z
-            );
-
-            // Get the chunk containing this world position
-            ChunkPos targetChunkPos = new ChunkPos(
-                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
-            );
-
-            Chunk targetChunk = chunkManager.GetChunk(targetChunkPos);
-            if (targetChunk != null && targetChunk.TerrainGenerated)
-            {
-                Vector3i localPos = new Vector3i(
-                    worldPos.X - targetChunkPos.X * Constants.CHUNK_SIZE,
-                    worldPos.Y,
-                    worldPos.Z - targetChunkPos.Z * Constants.CHUNK_SIZE
-                );
-
-                if (localPos.X < 0) localPos.X += Constants.CHUNK_SIZE;
-                if (localPos.Z < 0) localPos.Z += Constants.CHUNK_SIZE;
-
-                if (targetChunk.IsInBounds(localPos))
+                if (_mBlocks[x, y, z] != block)
                 {
-                    return BlockRegistry.GetBlock(targetChunk.Voxels[localPos.X, localPos.Y, localPos.Z]).IsSolid;
+                    _mBlocks[x, y, z] = block;
+                    mIsDirty = true;
+                    _needsMeshRebuild = true;
                 }
             }
-
-            return false;
         }
 
-        // Update gravity blocks when the chunk is updated. Is this function convoluted and inefficient, yes. Does it work consistently, yes. So it stays for now
-        private void updateGravityBlocks(ChunkManager manager)
+        public async Task GenerateAsync()
         {
-            bool blocksChanged = false;
-            bool hadChanges;
+            if (State != ChunkState.Empty) 
+                return;
 
-            do
+            State = ChunkState.Generating;
+
+            await Task.Run(() =>
             {
-                hadChanges = false;
-
-                for (int y = 1; y < Constants.CHUNK_HEIGHT; y++)
+                lock (_mLockObject)
                 {
-                    for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+                    var terrainGenerator = new TerrainGenerator();
+                    terrainGenerator.GenerateTerrain(this);
+                }
+            });
+
+            State = ChunkState.Generated;
+            mIsDirty = true;
+            _needsMeshRebuild = true;
+
+            //// Debug: Count blocks in this chunk
+            //int blockCount = 0;
+            //for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+            //{
+            //    for (int y = 0; y < GameConstants.CHUNK_HEIGHT; y++)
+            //    {
+            //        for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
+            //        {
+            //            if (_blocks[x, y, z] != BlockIDs.Air)
+            //                blockCount++;
+            //        }
+            //    }
+            //}
+
+        }
+
+
+
+        public bool NeedsRebuild() => mIsDirty && State == ChunkState.Generated;
+
+        public void MarkForRebuild()
+        {
+            mIsDirty = true;
+            _needsMeshRebuild = true;
+        }
+
+        public void ClearDirtyFlag()
+        {
+            mIsDirty = false;
+        }
+
+        private byte getNeighborBlock(int x, int y, int z, ChunkManager chunkManager)
+        {
+            if (x >= 0 && x < GameConstants.CHUNK_SIZE && y >= 0 && y < GameConstants.CHUNK_HEIGHT && z >= 0 && z < GameConstants.CHUNK_SIZE)
+                return GetBlock(x, y, z);
+
+            int neighborChunkX = X;
+            int neighborChunkZ = Z;
+            int localX = x;
+            int localZ = z;
+
+            if (x < 0)
+            {
+                neighborChunkX--;
+                localX = GameConstants.CHUNK_SIZE - 1;
+            }
+            else if (x >= GameConstants.CHUNK_SIZE)
+            {
+                neighborChunkX++;
+                localX = 0;
+            }
+
+            if (z < 0)
+            {
+                neighborChunkZ--;
+                localZ = GameConstants.CHUNK_SIZE - 1;
+            }
+            else if (z >= GameConstants.CHUNK_SIZE)
+            {
+                neighborChunkZ++;
+                localZ = 0;
+            }
+
+            if (y < 0 || y >= GameConstants.CHUNK_HEIGHT)
+                return BlockIDs.Air;
+
+            var neighborChunk = chunkManager.GetChunk(neighborChunkX, neighborChunkZ);
+            return neighborChunk?.GetBlock(localX, y, localZ) ?? BlockIDs.Air;
+        }
+
+
+        public ChunkMesh? GetCurrentMesh() => mCurrentMesh;
+
+        public ChunkMesh GenerateMesh(ChunkManager chunkManager, Texture textureAtlas)
+        {
+            var mesh = new ChunkMesh();
+
+            lock (_mLockObject)
+            {
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+                {
+                    for (int y = 0; y < GameConstants.CHUNK_HEIGHT; y++)
                     {
-                        for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                        for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
                         {
-                            byte blockType = Voxels[x, y, z];
-
-                            if (blockType == BlockIDs.Air || !BlockRegistry.GetBlock(blockType).GravityBlock)
-                                continue;
-
-                            if (!isVoxelSolid(x, y - 1, z, manager))
+                            var blockId = _mBlocks[x, y, z];
+                            if (blockId != BlockIDs.Air)
                             {
-                                int landingY = y;
-                                for (int checkY = y - 1; checkY >= 0; checkY--)
+                                if (blockId == BlockIDs.Torch)
                                 {
-                                    if (isVoxelSolid(x, checkY, z, manager))
-                                    {
-                                        landingY = checkY + 1;
-                                        break;
-                                    }
-                                    landingY = 0;
+                                    addTorchMesh(mesh.Vertices, x, y, z, chunkManager);
                                 }
-
-                                if (landingY < y)
+                                else if (blockId == BlockIDs.Slab)
                                 {
-                                    // Move the block
-                                    Voxels[x, y, z] = BlockIDs.Air;
-                                    Voxels[x, landingY, z] = blockType;
-
-                                    hadChanges = true;
-                                    blocksChanged = true;
-
-                                    Modified = true;
+                                    addSlabMesh(mesh.Vertices, x, y, z, chunkManager);
+                                }
+                                else if (blockId == BlockIDs.Flower)
+                                {
+                                    addFlowerMesh(mesh.Vertices, x, y, z, chunkManager);
+                                }
+                                else
+                                {
+                                    addBlockFaces(mesh.Vertices, x, y, z, blockId, chunkManager);
                                 }
                             }
                         }
                     }
                 }
-            } while (hadChanges);
+            }
 
-            if (blocksChanged)
-                MeshGenerated = false;
+            mesh.IsReady = true;
+            return mesh;
         }
 
-        public void GenMesh(ChunkManager chunkManager)
+        public void SetMesh(ChunkMesh mesh)
         {
-            if (mDisposed || !TerrainGenerated)
-                return;
+            mCurrentMesh = mesh;
+            _needsMeshRebuild = false;
+        }
 
-            lock (this)
+        private void addBlockFaces(List<Vertex> vertices, int localX, int localY, int localZ, byte block, ChunkManager chunkManager)
+        {
+            int worldX = X * GameConstants.CHUNK_SIZE + localX;
+            int worldZ = Z * GameConstants.CHUNK_SIZE + localZ;
+
+            // Top face (Y+)
+            if (isBlockTransparent(getBlockForMesh(localX, localY + 1, localZ, chunkManager)))
             {
-                if (MeshGenerated)
-                    return;
+                var texCoords = getTextureCoords(block, 4); // 4 = Top face index
+                var lightLevel = getLightForMesh(localX, localY + 1, localZ, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX, localY + 1, worldZ + 1,     // v1
+                    worldX + 1, localY + 1, worldZ + 1, // v2
+                    worldX + 1, localY + 1, worldZ,     // v3
+                    worldX, localY + 1, worldZ,         // v4
+                    texCoords, lightValue);
+            }
 
-                updateGravityBlocks(chunkManager);
+            // Bottom face (Y-)
+            if (isBlockTransparent(getBlockForMesh(localX, localY - 1, localZ, chunkManager)))
+            {
+                var texCoords = getTextureCoords(block, 5); // 5 = Bottom face index
+                var lightLevel = getLightForMesh(localX, localY - 1, localZ, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX, localY, worldZ,         // v1
+                    worldX + 1, localY, worldZ,     // v2
+                    worldX + 1, localY, worldZ + 1, // v3
+                    worldX, localY, worldZ + 1,     // v4
+                    texCoords, lightValue);
+            }
 
-                // Initialize mesh generator if needed
-                if (mMeshGenerator == null)
-                {
-                    mMeshGenerator = new ChunkMeshGenerator(chunkManager);
-                }
+            // Front face (Z+)
+            if (isBlockTransparent(getBlockForMesh(localX, localY, localZ + 1, chunkManager)))
+            {
+                var texCoords = getTextureCoords(block, 0); // 0 = Side face index
+                var lightLevel = getLightForMesh(localX, localY, localZ + 1, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX, localY, worldZ + 1,         // v1
+                    worldX + 1, localY, worldZ + 1,     // v2
+                    worldX + 1, localY + 1, worldZ + 1, // v3
+                    worldX, localY + 1, worldZ + 1,     // v4
+                    texCoords, lightValue);
+            }
 
-                // Return old lists to pool before replacing
-                if (Vertices != null)
-                {
-                    chunkManager.ReturnVertexList(Vertices);
-                    Vertices = null;
-                }
-                if (Indices != null)
-                {
-                    chunkManager.ReturnIndexList(Indices);
-                    Indices = null;
-                }
+            // Back face (Z-)
+            if (isBlockTransparent(getBlockForMesh(localX, localY, localZ - 1, chunkManager)))
+            {
+                var texCoords = getTextureCoords(block, 1); // 1 = Side face index
+                var lightLevel = getLightForMesh(localX, localY, localZ - 1, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX + 1, localY, worldZ,     // v1
+                    worldX, localY, worldZ,         // v2
+                    worldX, localY + 1, worldZ,     // v3
+                    worldX + 1, localY + 1, worldZ, // v4
+                    texCoords, lightValue);
+            }
 
-                // Generate new mesh
-                (Vertices, Indices) = mMeshGenerator.GenerateMesh(this, chunkManager);
-                MeshGenerated = true;
-                MeshUploaded = false;
+            // Right face (X+)
+            if (isBlockTransparent(getBlockForMesh(localX + 1, localY, localZ, chunkManager)))
+            {
+                var texCoords = getTextureCoords(block, 2); // 2 = Side face index
+                var lightLevel = getLightForMesh(localX + 1, localY, localZ, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX + 1, localY, worldZ + 1, // v1
+                    worldX + 1, localY, worldZ,     // v2
+                    worldX + 1, localY + 1, worldZ, // v3
+                    worldX + 1, localY + 1, worldZ + 1, // v4
+                    texCoords, lightValue);
+            }
+
+            // Left face (X-)
+            if (isBlockTransparent(getBlockForMesh(localX - 1, localY, localZ, chunkManager)))
+            {
+                var texCoords = getTextureCoords(block, 3); // 3 = Side face index
+                var lightLevel = getLightForMesh(localX - 1, localY, localZ, chunkManager);
+                var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+                addQuadVertices(vertices,
+                    worldX, localY, worldZ,         // v1
+                    worldX, localY, worldZ + 1,     // v2
+                    worldX, localY + 1, worldZ + 1, // v3
+                    worldX, localY + 1, worldZ,     // v4
+                    texCoords, lightValue);
             }
         }
 
-        public void UploadMesh(ChunkManager chunkManager)
+        // Helper struct for mesh generation bounds
+        private struct MeshBounds
         {
-            if (mDisposed)
-                return;
-
-            List<Vertex> localVertices;
-            List<uint> localIndices;
-
-            lock (this)
+            public float X1, X2, Y1, Y2, Z1, Z2;
+            
+            public MeshBounds(float x1, float x2, float y1, float y2, float z1, float z2)
             {
-                if (!MeshGenerated || !TerrainGenerated || MeshUploaded ||
-                    Vertices == null || Indices == null ||
-                    Vertices.Count == 0 || Indices.Count == 0)
-                {
-                    return;
-                }
+                X1 = x1; X2 = x2; Y1 = y1; Y2 = y2; Z1 = z1; Z2 = z2;
+            }
+        }
 
-                localVertices = new List<Vertex>(Vertices);
-                localIndices = new List<uint>(Indices);
+        // Common setup for custom mesh generation
+        private (MeshBounds bounds, float lightValue, Vector2[] topCoords, Vector2[] sideCoords, Vector2[] bottomCoords) 
+            setupCustomMesh(int localX, int localY, int localZ, ChunkManager chunkManager, byte blockId, 
+                           float width, float height, float depth, float offsetX = 0f, float offsetZ = 0f)
+        {
+            int worldX = X * GameConstants.CHUNK_SIZE + localX;
+            int worldZ = Z * GameConstants.CHUNK_SIZE + localZ;
+
+            float x1 = worldX + offsetX;
+            float x2 = worldX + offsetX + width;
+            float y1 = localY;
+            float y2 = localY + height;
+            float z1 = worldZ + offsetZ;
+            float z2 = worldZ + offsetZ + depth;
+
+            var bounds = new MeshBounds(x1, x2, y1, y2, z1, z2);
+
+            var lightLevel = getLightForMesh(localX, localY, localZ, chunkManager);
+            var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+
+            var topCoords = getTextureCoords(blockId, 4);
+            var sideCoords = getTextureCoords(blockId, 0);
+            var bottomCoords = getTextureCoords(blockId, 5);
+
+            return (bounds, lightValue, topCoords, sideCoords, bottomCoords);
+        }
+
+        // Helper to add a cube mesh with specified bounds
+        private void addCubeMesh(List<Vertex> vertices, MeshBounds bounds, float lightValue,
+                                Vector2[] topCoords, Vector2[] sideCoords, Vector2[] bottomCoords,
+                                int localX, int localY, int localZ, ChunkManager chunkManager,
+                                bool alwaysShowTop = false)
+        {
+            // Top face
+            if (alwaysShowTop || isBlockTransparent(getBlockForMesh(localX, localY + 1, localZ, chunkManager)))
+            {
+                addQuadVertices(vertices,
+                    bounds.X1, bounds.Y2, bounds.Z2,
+                    bounds.X2, bounds.Y2, bounds.Z2,
+                    bounds.X2, bounds.Y2, bounds.Z1,
+                    bounds.X1, bounds.Y2, bounds.Z1,
+                    topCoords, lightValue);
             }
 
-            try
+            // Bottom face
+            if (isBlockTransparent(getBlockForMesh(localX, localY - 1, localZ, chunkManager)))
             {
-                if (!mOpenGLMade)
+                addQuadVertices(vertices,
+                    bounds.X1, bounds.Y1, bounds.Z1,
+                    bounds.X2, bounds.Y1, bounds.Z1,
+                    bounds.X2, bounds.Y1, bounds.Z2,
+                    bounds.X1, bounds.Y1, bounds.Z2,
+                    bottomCoords, lightValue);
+            }
+
+            // Front face (Z+)
+            if (isBlockTransparent(getBlockForMesh(localX, localY, localZ + 1, chunkManager)))
+            {
+                addQuadVertices(vertices,
+                    bounds.X1, bounds.Y1, bounds.Z2,
+                    bounds.X2, bounds.Y1, bounds.Z2,
+                    bounds.X2, bounds.Y2, bounds.Z2,
+                    bounds.X1, bounds.Y2, bounds.Z2,
+                    sideCoords, lightValue);
+            }
+
+            // Back face (Z-)
+            if (isBlockTransparent(getBlockForMesh(localX, localY, localZ - 1, chunkManager)))
+            {
+                addQuadVertices(vertices,
+                    bounds.X2, bounds.Y1, bounds.Z1,
+                    bounds.X1, bounds.Y1, bounds.Z1,
+                    bounds.X1, bounds.Y2, bounds.Z1,
+                    bounds.X2, bounds.Y2, bounds.Z1,
+                    sideCoords, lightValue);
+            }
+
+            // Right face (X+)
+            if (isBlockTransparent(getBlockForMesh(localX + 1, localY, localZ, chunkManager)))
+            {
+                addQuadVertices(vertices,
+                    bounds.X2, bounds.Y1, bounds.Z2,
+                    bounds.X2, bounds.Y1, bounds.Z1,
+                    bounds.X2, bounds.Y2, bounds.Z1,
+                    bounds.X2, bounds.Y2, bounds.Z2,
+                    sideCoords, lightValue);
+            }
+
+            // Left face (X-)
+            if (isBlockTransparent(getBlockForMesh(localX - 1, localY, localZ, chunkManager)))
+            {
+                addQuadVertices(vertices,
+                    bounds.X1, bounds.Y1, bounds.Z1,
+                    bounds.X1, bounds.Y1, bounds.Z2,
+                    bounds.X1, bounds.Y2, bounds.Z2,
+                    bounds.X1, bounds.Y2, bounds.Z1,
+                    sideCoords, lightValue);
+            }
+        }
+
+        private void addTorchMesh(List<Vertex> vertices, int localX, int localY, int localZ, ChunkManager chunkManager)
+        {
+            float torchWidth = 2.0f / 16.0f;
+            float torchHeight = 9.0f / 16.0f;
+            float torchDepth = 2.0f / 16.0f;
+            
+            float offsetX = (1.0f - torchWidth) / 2.0f;
+            float offsetZ = (1.0f - torchDepth) / 2.0f;
+
+            var (bounds, lightValue, topCoords, sideCoords, bottomCoords) = setupCustomMesh(localX, localY, localZ, chunkManager, BlockIDs.Torch, torchWidth, torchHeight, torchDepth, offsetX, offsetZ);
+
+            addCubeMesh(vertices, bounds, lightValue, topCoords, sideCoords, bottomCoords, localX, localY, localZ, chunkManager, alwaysShowTop: true);
+        }
+
+        private void addSlabMesh(List<Vertex> vertices, int localX, int localY, int localZ, ChunkManager chunkManager)
+        {
+            var (bounds, lightValue, topCoords, sideCoords, bottomCoords) =  setupCustomMesh(localX, localY, localZ, chunkManager, BlockIDs.Slab, 1.0f, 0.5f, 1.0f, 0f, 0f);
+
+            addCubeMesh(vertices, bounds, lightValue, topCoords, sideCoords, bottomCoords, localX, localY, localZ, chunkManager, alwaysShowTop: true);
+        }
+
+        private void addFlowerMesh(List<Vertex> vertices, int localX, int localY, int localZ, ChunkManager chunkManager)
+        {
+            int worldX = X * GameConstants.CHUNK_SIZE + localX;
+            int worldZ = Z * GameConstants.CHUNK_SIZE + localZ;
+
+            var lightLevel = getLightForMesh(localX, localY, localZ, chunkManager);
+            var lightValue = Math.Max(0.15f, lightLevel / 15.0f);
+
+            var texCoords = getTextureCoords(BlockIDs.Flower, 0);
+
+            float centerX = worldX + 0.5f;
+            float centerZ = worldZ + 0.5f;
+            float y1 = localY;
+            float y2 = localY + 1.0f;
+
+            float halfSize = 0.45f;
+
+            addFlowerCross(vertices, centerX, centerZ, y1, y2, halfSize, texCoords, lightValue);
+        }
+
+        private void addFlowerCross(List<Vertex> vertices, float centerX, float centerZ, float y1, float y2, 
+                                   float halfSize, Vector2[] texCoords, float lightValue)
+        {
+            // NW-SE diagonal
+            addQuadVertices(vertices,
+                centerX - halfSize, y1, centerZ - halfSize,  // v1 (bottom NW)
+                centerX + halfSize, y1, centerZ + halfSize,  // v2 (bottom SE)
+                centerX + halfSize, y2, centerZ + halfSize,  // v3 (top SE)
+                centerX - halfSize, y2, centerZ - halfSize,  // v4 (top NW)
+                texCoords, lightValue);
+
+            // Back side of first diagonal
+            addQuadVertices(vertices,
+                centerX + halfSize, y1, centerZ + halfSize,  // v1
+                centerX - halfSize, y1, centerZ - halfSize,  // v2
+                centerX - halfSize, y2, centerZ - halfSize,  // v3
+                centerX + halfSize, y2, centerZ + halfSize,  // v4
+                texCoords, lightValue);
+
+            // NE-SW diagonal
+            addQuadVertices(vertices,
+                centerX + halfSize, y1, centerZ - halfSize,  // v1 (bottom NE)
+                centerX - halfSize, y1, centerZ + halfSize,  // v2 (bottom SW)
+                centerX - halfSize, y2, centerZ + halfSize,  // v3 (top SW)
+                centerX + halfSize, y2, centerZ - halfSize,  // v4 (top NE)
+                texCoords, lightValue);
+
+            // Back side of second diagonal
+            addQuadVertices(vertices,
+                centerX - halfSize, y1, centerZ + halfSize,  // v1
+                centerX + halfSize, y1, centerZ - halfSize,  // v2
+                centerX + halfSize, y2, centerZ - halfSize,  // v3
+                centerX - halfSize, y2, centerZ + halfSize,  // v4
+                texCoords, lightValue);
+        }
+
+        private bool isBlockTransparent(byte blockId)
+        {
+            return blockId == BlockIDs.Air || blockId == BlockIDs.Torch || blockId == BlockIDs.Flower;
+        }
+
+        private byte getBlockForMesh(int localX, int localY, int localZ, ChunkManager chunkManager)
+        {
+            if (localY < 0 || localY >= GameConstants.CHUNK_HEIGHT)
+                return BlockIDs.Air;
+
+            if (localX >= 0 && localX < GameConstants.CHUNK_SIZE && localZ >= 0 && localZ < GameConstants.CHUNK_SIZE)
+                return _mBlocks[localX, localY, localZ];
+
+            return getNeighborBlock(localX, localY, localZ, chunkManager);
+        }
+
+        private void addQuadVertices(List<Vertex> vertices, float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3, float x4, float y4, float z4, Vector2[] texCoords, float lightValue)
+        {
+            var lightColor = new Vector3(lightValue, lightValue, lightValue);
+
+            // First triangle (counter-clockwise)
+            vertices.Add(new Vertex(new Vector3(x1, y1, z1), lightColor, texCoords[0]));
+            vertices.Add(new Vertex(new Vector3(x2, y2, z2), lightColor, texCoords[1]));
+            vertices.Add(new Vertex(new Vector3(x3, y3, z3), lightColor, texCoords[2]));
+
+            // Second triangle (counter-clockwise)
+            vertices.Add(new Vertex(new Vector3(x1, y1, z1), lightColor, texCoords[0]));
+            vertices.Add(new Vertex(new Vector3(x3, y3, z3), lightColor, texCoords[2]));
+            vertices.Add(new Vertex(new Vector3(x4, y4, z4), lightColor, texCoords[3]));
+        }
+
+        #region Lighting Methods
+        // Gets light value for a position
+        private byte getLightForMesh(int localX, int localY, int localZ, ChunkManager chunkManager)
+        {
+            if (localX < 0 || localX >= GameConstants.CHUNK_SIZE || localY < 0 || localY >= GameConstants.CHUNK_HEIGHT || localZ < 0 || localZ >= GameConstants.CHUNK_SIZE)
+            {
+                if (localY < 0)
+                    return 0; // Below world = no light
+                if (localY >= GameConstants.CHUNK_HEIGHT)
+                    return 15; // Above world = full sky light
+
+                int worldX = X * GameConstants.CHUNK_SIZE + localX;
+                int worldZ = Z * GameConstants.CHUNK_SIZE + localZ;
+
+                int targetChunkX = worldX >> 4;
+                int targetChunkZ = worldZ >> 4;
+                var targetChunk = chunkManager.GetChunk(targetChunkX, targetChunkZ);
+
+                if (targetChunk?.State != ChunkState.Generated)
+                    return 15;
+
+                int targetLocalX = worldX & 15;
+                int targetLocalZ = worldZ & 15;
+
+                return targetChunk.GetBlockLightValue(targetLocalX, localY, targetLocalZ, 0);
+            }
+
+            return GetBlockLightValue(localX, localY, localZ, 0);
+        }
+
+        
+
+        // Gets the stored light value for a specific light type
+        public byte GetSavedLightValue(LightType lightType, int x, int y, int z)
+        {
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || y < 0 || y >= GameConstants.CHUNK_HEIGHT || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return lightType == LightType.Sky ? (byte)15 : (byte)0;
+
+            lock (_mLockObject)
+            {
+                return lightType == LightType.Sky ? _mSkyLightMap.GetNibble(x, y, z) : _mBlockLightMap.GetNibble(x, y, z);
+            }
+        }
+
+        // Sets the light value for a specific light type
+        public void SetLightValue(LightType lightType, int x, int y, int z, byte value)
+        {
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || y < 0 || y >= GameConstants.CHUNK_HEIGHT || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return;
+
+            lock (_mLockObject)
+            {
+                if (lightType == LightType.Sky)
                 {
-                    VAO = GL.GenVertexArray();
-                    VBO = GL.GenBuffer();
-                    EBO = GL.GenBuffer();
-                    mOpenGLMade = true;
-                }
-
-                GL.BindVertexArray(VAO);
-
-                var vertexArray = localVertices.ToArray();
-                var indexArray = localIndices.ToArray();
-
-                if (vertexArray.Length == 0 || indexArray.Length == 0)
-                {
-                    Console.WriteLine($"Warning: Empty mesh data for chunk {Position}");
-                    MeshUploaded = true;
-                    mIndexCount = 0;
-                    return;
-                }
-
-                mIndexCount = indexArray.Length;
-
-                int vertexDataSize = vertexArray.Length * System.Runtime.InteropServices.Marshal.SizeOf<Vertex>();
-                int indexDataSize = indexArray.Length * sizeof(uint);
-
-                // Vertex data
-                GL.BindBuffer(BufferTarget.ArrayBuffer, VBO);
-                if (vertexDataSize > mCurrentVBOSize)
-                {
-                    GL.BufferData(BufferTarget.ArrayBuffer, vertexDataSize, vertexArray, BufferUsageHint.DynamicDraw);
-                    mCurrentVBOSize = vertexDataSize;
+                    _mSkyLightMap.SetNibble(x, y, z, value);
                 }
                 else
                 {
-                    GL.BufferSubData(BufferTarget.ArrayBuffer, IntPtr.Zero, vertexDataSize, vertexArray);
+                    _mBlockLightMap.SetNibble(x, y, z, value);
                 }
-
-                // Index data
-                GL.BindBuffer(BufferTarget.ElementArrayBuffer, EBO);
-                if (indexDataSize > mCurrentEBOSize)
-                {
-                    GL.BufferData(BufferTarget.ElementArrayBuffer, indexDataSize, indexArray, BufferUsageHint.DynamicDraw);
-                    mCurrentEBOSize = indexDataSize;
-                }
-                else
-                {
-                    GL.BufferSubData(BufferTarget.ElementArrayBuffer, IntPtr.Zero, indexDataSize, indexArray);
-                }
-
-                // Set vertex attributes only once
-                if (!mVertexAttribsSet)
-                {
-                    // Vertex attributes
-                    GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false,
-                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(), 0);
-                    GL.EnableVertexAttribArray(0);
-
-                    // Normal
-                    GL.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false,
-                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.Normal)));
-                    GL.EnableVertexAttribArray(1);
-
-                    // Texture coordinates
-                    GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false,
-                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TexCoord)));
-                    GL.EnableVertexAttribArray(2);
-
-                    // Texture ID
-                    GL.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false,
-                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.TextureID)));
-                    GL.EnableVertexAttribArray(3);
-
-                    // Lighting
-                    GL.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false,
-                        System.Runtime.InteropServices.Marshal.SizeOf<Vertex>(),
-                        System.Runtime.InteropServices.Marshal.OffsetOf<Vertex>(nameof(Vertex.LightValue)));
-                    GL.EnableVertexAttribArray(4);
-
-                    mVertexAttribsSet = true;
-                }
-
-                GL.BindVertexArray(0);
-                GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
-                GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
-
-                lock (this)
-                {
-                    MeshUploaded = true;
-
-                    if (Vertices != null)
-                    {
-                        chunkManager.ReturnVertexList(Vertices);
-                        Vertices = null;
-                    }
-                    if (Indices != null)
-                    {
-                        chunkManager.ReturnIndexList(Indices);
-                        Indices = null;
-                    }
-                }
+                mIsDirty = true;
+                _needsMeshRebuild = true;
             }
-            catch (Exception ex)
+        }
+
+        // Gets the combined light value (sky + block light with day/night cycle)
+        public byte GetBlockLightValue(int x, int y, int z, int skylightSubtracted)
+        {
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || y < 0 || y >= GameConstants.CHUNK_HEIGHT || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return 15;
+
+            lock (_mLockObject)
             {
-                Console.WriteLine($"Error uploading mesh for chunk {Position}: {ex.Message}");
-                Console.WriteLine($"Vertex count: {localVertices?.Count ?? 0}, Index count: {localIndices?.Count ?? 0}");
+                byte skyLight = _mSkyLightMap.GetNibble(x, y, z);
 
-                lock (this)
-                {
-                    MeshUploaded = false;
-                }
+                skyLight = (byte)Math.Max(0, skyLight - skylightSubtracted);
+
+                byte blockLight = _mBlockLightMap.GetNibble(x, y, z);
+
+                return (byte)Math.Max(skyLight, (int)blockLight);
             }
         }
 
-        public void Render()
+        // Checks if a block can see the sky
+        public bool CanBlockSeeTheSky(int x, int y, int z)
         {
-            if (!MeshUploaded || !TerrainGenerated || mIndexCount == 0 || mDisposed) 
-                return;
+            if (x < 0 || x >= GameConstants.CHUNK_SIZE || z < 0 || z >= GameConstants.CHUNK_SIZE)
+                return false;
 
-            GL.BindVertexArray(VAO);
-            GL.DrawElements(PrimitiveType.Triangles, mIndexCount, DrawElementsType.UnsignedInt, 0);
-            GL.BindVertexArray(0);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (mDisposed)
-                return;
-
-            if (disposing)
+            lock (_mLockObject)
             {
-                // Clean up voxel and lighting data
-                Voxels = null;
-                SunlightLevels = null;
-                BlockLightLevels = null;
+                int index = z * GameConstants.CHUNK_SIZE + x;
+                return y >= _mHeightMap[index];
+            }
+        }
 
-                // Return lists to pool
-                if (Vertices != null && VoxelGame.init?._ChunkManager != null)
-                {
-                    VoxelGame.init._ChunkManager.ReturnVertexList(Vertices);
-                    Vertices = null;
-                }
+        // Updates the height map for sky light calculations
+        public void UpdateHeightMap()
+        {
+            lock (_mLockObject)
+            {
+                int lowestHeight = GameConstants.CHUNK_HEIGHT;
 
-                if (Indices != null && VoxelGame.init?._ChunkManager != null)
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
                 {
-                    VoxelGame.init._ChunkManager.ReturnIndexList(Indices);
-                    Indices = null;
-                }
+                    for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
+                    {
+                        int height = GameConstants.CHUNK_HEIGHT;
 
-                // Clean up OpenGL resources
-                if (mOpenGLMade)
-                {
-                    try
-                    {
-                        GL.DeleteBuffer(VBO);
-                        GL.DeleteBuffer(EBO);
-                        GL.DeleteVertexArray(VAO);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error disposing GL resources for chunk at {Position}: {ex.Message}");
-                    }
-                    finally
-                    {
-                        mOpenGLMade = false;
-                        MeshUploaded = false;
-                        VAO = VBO = EBO = 0;
+                        for (int y = GameConstants.CHUNK_HEIGHT - 1; y >= 0; y--)
+                        {
+                            byte blockId = _mBlocks[x, y, z];
+                            var block = BlockRegistry.GetBlock(blockId);
+
+                            if (block != null && block.LightOpacity > 0)
+                            {
+                                height = y + 1;
+                                break;
+                            }
+                        }
+
+                        int index = z * GameConstants.CHUNK_SIZE + x;
+                        _mHeightMap[index] = (byte)height;
+
+                        if (height < lowestHeight)
+                            lowestHeight = height;
                     }
                 }
 
-                mDisposed = true;
-                mIndexCount = 0;
+                mLowestBlockHeight = lowestHeight;
+                mIsDirty = true;
             }
         }
 
-        public bool IsInBounds(Vector3i pos) =>
-           pos.X >= 0 && pos.X < Constants.CHUNK_SIZE &&
-           pos.Y >= 0 && pos.Y < Constants.CHUNK_HEIGHT &&
-           pos.Z >= 0 && pos.Z < Constants.CHUNK_SIZE;
-
-        public byte GetBlock(Vector3i position)
+        // Init lighting for this chunk
+        public void InitLighting()
         {
-            return Voxels[position.X, position.Y, position.Z];
-        }
-
-        #region Frustum stuff
-        public Vector3 WorldPosition
-        {
-            get
+            lock (_mLockObject)
             {
-                return new Vector3(
-                    Position.X * Constants.CHUNK_SIZE,
-                    0,
-                    Position.Z * Constants.CHUNK_SIZE
-                );
+                _mSkyLightMap.Clear();
+                _mBlockLightMap.Clear();
+
+                UpdateHeightMap();
+
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+                {
+                    for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
+                    {
+                        int index = z * GameConstants.CHUNK_SIZE + x;
+                        int topHeight = _mHeightMap[index];
+
+                        for (int y = topHeight; y < GameConstants.CHUNK_HEIGHT; y++)
+                        {
+                            _mSkyLightMap.SetNibble(x, y, z, 15);
+                        }
+
+                        // Propagate skylight downward
+                        byte currentSkyLight = 15;
+                        for (int y = topHeight - 1; y >= 0; y--)
+                        {
+                            byte blockId = _mBlocks[x, y, z];
+                            var block = BlockRegistry.GetBlock(blockId);
+
+                            if (block != null && block.LightOpacity > 0)
+                            {
+                                currentSkyLight = (byte)Math.Max(0, currentSkyLight - block.LightOpacity);
+                            }
+
+                            if (currentSkyLight > 0)
+                            {
+                                _mSkyLightMap.SetNibble(x, y, z, currentSkyLight);
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Init block lighting from light-emitting blocks
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+                {
+                    for (int y = 0; y < GameConstants.CHUNK_HEIGHT; y++)
+                    {
+                        for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
+                        {
+                            byte blockId = _mBlocks[x, y, z];
+                            var block = BlockRegistry.GetBlock(blockId);
+
+                            if (block != null && block.LightValue > 0)
+                            {
+                                _mBlockLightMap.SetNibble(x, y, z, block.LightValue);
+                            }
+                        }
+                    }
+                }
+
+                mIsDirty = true;
+                _needsMeshRebuild = true;
+
             }
         }
 
-        public Vector3 BoundingBoxMin
-        {
-            get { return WorldPosition; }
-        }
-        public Vector3 BoundingBoxMax
-        {
-            get
-            {
-                return WorldPosition + new Vector3(
-                    Constants.CHUNK_SIZE,
-                    Constants.CHUNK_HEIGHT,
-                    Constants.CHUNK_SIZE
-                );
-            }
-        }
-
-        public bool IsInFrustum(Frustum frustum)
-        {
-            return frustum.IsBoxInFrustum(BoundingBoxMin, BoundingBoxMax);
-        }
         #endregion
 
-        public bool IsMeshReadyForUpload()
+        private Vector2[] getTextureCoords(byte voxelType, int faceIndex)
         {
-            lock (this)
+            IBlock? block = BlockRegistry.GetBlock(voxelType);
+            if (block == null)
             {
-                return MeshGenerated && !MeshUploaded && TerrainGenerated && Vertices != null && Indices != null && Vertices.Count > 0 && Indices.Count > 0;
+                var defaultCoords = UVHelper.FromTileCoords(0, 0);
+                return
+                [defaultCoords.TopLeft,
+                new Vector2(defaultCoords.BottomRight.X, defaultCoords.TopLeft.Y),
+                defaultCoords.BottomRight,
+                new Vector2(defaultCoords.TopLeft.X, defaultCoords.BottomRight.Y)];
             }
+
+            TextureCoords coords;
+            switch (faceIndex)
+            {
+                case 4: // Top
+                    coords = block.TopTextureCoords;
+                    break;
+                case 5: // Bottom
+                    coords = block.BottomTextureCoords;
+                    break;
+                default: // Side
+                    coords = block.SideTextureCoords;
+                    break;
+            }
+
+            return
+            [coords.TopLeft,
+            new Vector2(coords.BottomRight.X, coords.TopLeft.Y),
+            coords.BottomRight,
+            new Vector2(coords.TopLeft.X, coords.BottomRight.Y)];
         }
+    }
+
+    public enum ChunkState
+    {
+        Empty,
+        Generating,
+        Generated,
+        Unloading
     }
 }

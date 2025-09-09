@@ -1,7 +1,7 @@
-﻿// Where is the texture on the atlas. | DA | 8/1/25
+﻿// Small struct used to hold texture coords
 using OpenTK.Mathematics;
 
-namespace VoxelGame.Utils
+namespace DuncanCraft.Utils
 {
     public struct TextureCoords
     {

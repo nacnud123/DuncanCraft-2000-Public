@@ -1,13 +1,13 @@
-﻿// Loads shaders and compiles them. Also has functions to modify stuff in the shader. | DA | 8/1/25
+﻿// Main Shader script, used to load in, compile, and destroy shaders
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using System;
 
-namespace VoxelGame.Utils
+namespace DuncanCraft.Utils
 {
     public class Shader
     {
-        public readonly int Handle;
+        public readonly int _Handle;
         private readonly Dictionary<string, int> _mUniformLocations;
 
         public Shader(string vertPath, string fragPath)
@@ -24,26 +24,26 @@ namespace VoxelGame.Utils
             GL.ShaderSource(fragmentShader, shaderSource);
             compileShader(fragmentShader);
 
-            Handle = GL.CreateProgram();
+            _Handle = GL.CreateProgram();
 
-            GL.AttachShader(Handle, vertexShader);
-            GL.AttachShader(Handle, fragmentShader);
+            GL.AttachShader(_Handle, vertexShader);
+            GL.AttachShader(_Handle, fragmentShader);
 
-            linkProgram(Handle);
+            linkProgram(_Handle);
 
-            GL.DetachShader(Handle, vertexShader);
-            GL.DetachShader(Handle, fragmentShader);
+            GL.DetachShader(_Handle, vertexShader);
+            GL.DetachShader(_Handle, fragmentShader);
             GL.DeleteShader(fragmentShader);
             GL.DeleteShader(vertexShader);
 
-            GL.GetProgram(Handle, GetProgramParameterName.ActiveUniforms, out var numberOfUniforms);
+            GL.GetProgram(_Handle, GetProgramParameterName.ActiveUniforms, out var numberOfUniforms);
 
             _mUniformLocations = new Dictionary<string, int>();
 
             for (var i = 0; i < numberOfUniforms; i++)
             {
-                var key = GL.GetActiveUniform(Handle, i, out _, out _);
-                var location = GL.GetUniformLocation(Handle, key);
+                var key = GL.GetActiveUniform(_Handle, i, out _, out _);
+                var location = GL.GetUniformLocation(_Handle, key);
 
                 _mUniformLocations.Add(key, location);
             }
@@ -74,47 +74,47 @@ namespace VoxelGame.Utils
 
         public void Use()
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
         }
 
         public int GetAttribLocation(string attribName)
         {
-            return GL.GetAttribLocation(Handle, attribName);
+            return GL.GetAttribLocation(_Handle, attribName);
         }
 
         public void SetInt(string name, int data)
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
             GL.Uniform1(_mUniformLocations[name], data);
         }
 
         public void SetFloat(string name, float data)
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
             GL.Uniform1(_mUniformLocations[name], data);
         }
 
         public void SetMatrix4(string name, Matrix4 data)
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
             GL.UniformMatrix4(_mUniformLocations[name], true, ref data);
         }
 
         public void SetVector3(string name, Vector3 data)
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
             GL.Uniform3(_mUniformLocations[name], data);
         }
 
         public void SetVector2(string name, Vector2 data)
         {
-            GL.UseProgram(Handle);
+            GL.UseProgram(_Handle);
             GL.Uniform2(_mUniformLocations[name], data);
         }
 
         public void Dispose()
         {
-            GL.DeleteProgram(Handle);
+            GL.DeleteProgram(_Handle);
         }
     }
 }

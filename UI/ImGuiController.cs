@@ -9,7 +9,7 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 using System.Diagnostics;
 using ErrorCode = OpenTK.Graphics.OpenGL4.ErrorCode;
 
-namespace VoxelGame.UI
+namespace DuncanCraft.UI
 {
     public class ImGuiController : IDisposable
     {

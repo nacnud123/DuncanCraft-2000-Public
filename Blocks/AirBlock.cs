@@ -1,11 +1,11 @@
-﻿using System;
-using VoxelGame.Utils;
+using DuncanCraft.Utils;
+using System;
 
-namespace VoxelGame.Blocks
+namespace DuncanCraft.Blocks
 {
     public class AirBlock : IBlock
     {
-        public int ID => 0;
+        public byte ID => 0;
 
         public TextureCoords TopTextureCoords => throw new NotImplementedException();
 
@@ -13,16 +13,10 @@ namespace VoxelGame.Blocks
 
         public TextureCoords SideTextureCoords => throw new NotImplementedException();
 
-        public bool IsSolid => false;
-
         public string Name => "AIR";
-
-        public TextureCoords InventoryCoords => throw new NotImplementedException();
-        public bool GravityBlock => false;
-        public BlockMaterial Material => BlockMaterial.None;
-
-        public bool Transparent => true;
-        public byte LightLevel => 0;
+        
         public byte LightOpacity => 0;
+        
+        public byte LightValue => 0;
     }
 }

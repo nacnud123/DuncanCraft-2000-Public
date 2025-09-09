@@ -1,12 +1,14 @@
-// Used for stuff like dirt to grow grass, add this to a block that can be effected by random ticks.
-using OpenTK.Mathematics;
-using VoxelGame.Ticking;
-using VoxelGame.World;
+using DuncanCraft.World;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace VoxelGame.Blocks
+namespace DuncanCraft.Blocks
 {
     public interface IRandomTickable
     {
-        void OnRandomTick(Vector3i worldPos, WorldTickSystem tickSystem, ChunkManager chunkManager);
+        void OnRandomTick(GameWorld world, int x, int y, int z, Random random);
     }
 }
