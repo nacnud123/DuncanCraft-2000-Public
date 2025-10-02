@@ -38,6 +38,13 @@ namespace VoxelGame.Utils
             mBlocks[19] = new GoldOreBlock();
             mBlocks[20] = new DiamondOreBlock();
             mBlocks[21] = new TorchBlock();
+            mBlocks[22] = new BricksBlock();
+            mBlocks[23] = new GrassTuftBlock();
+            mBlocks[24] = new DuncanBlock();
+            mBlocks[25] = new SpongeBlock();
+            mBlocks[26] = new RedMushroomBlock();
+            mBlocks[27] = new BrownMushroomBlock();
+            mBlocks[28] = new GravelBlock();
             
         }
 
@@ -76,6 +83,13 @@ namespace VoxelGame.Utils
         public const byte GoldOre = 19;
         public const byte DiamondOre = 20;
         public const byte Torch = 21;
+        public const byte Brick = 22;
+        public const byte GrassTuff = 23;
+        public const byte Duncan = 24;
+        public const byte Sponge = 25;
+        public const byte RedMushroom = 26;
+        public const byte BrownMushroom = 27;
+        public const byte Gravel = 28;
         
     }
 }

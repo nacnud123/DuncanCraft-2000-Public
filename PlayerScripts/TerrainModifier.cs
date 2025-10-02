@@ -172,12 +172,12 @@ namespace VoxelGame.PlayerScripts
         // Simplified GetBlock method - now just for reading, not updating
         public byte GetBlock(Vector3i worldPos)
         {
-            if (worldPos.Y < 0 || worldPos.Y >= Constants.CHUNK_HEIGHT)
+            if (worldPos.Y < 0 || worldPos.Y >= GameConstants.CHUNK_HEIGHT)
                 return BlockIDs.Air;
 
             ChunkPos chunkPos = new ChunkPos(
-                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
+                (int)Math.Floor(worldPos.X / (float)GameConstants.CHUNK_SIZE),
+                (int)Math.Floor(worldPos.Z / (float)GameConstants.CHUNK_SIZE)
             );
 
             Chunk chunk = mChunkManager.GetChunk(chunkPos);
@@ -185,36 +185,36 @@ namespace VoxelGame.PlayerScripts
                 return BlockIDs.Air;
 
             Vector3i localPos = new Vector3i(
-                worldPos.X - chunkPos.X * Constants.CHUNK_SIZE,
+                worldPos.X - chunkPos.X * GameConstants.CHUNK_SIZE,
                 worldPos.Y,
-                worldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
+                worldPos.Z - chunkPos.Z * GameConstants.CHUNK_SIZE
             );
 
             // Handle negative coordinates properly for infinite terrain
             if (localPos.X < 0)
             {
-                localPos.X += Constants.CHUNK_SIZE;
+                localPos.X += GameConstants.CHUNK_SIZE;
                 chunkPos = new ChunkPos(chunkPos.X - 1, chunkPos.Z);
                 chunk = mChunkManager.GetChunk(chunkPos);
                 if (chunk == null) return BlockIDs.Air;
             }
             if (localPos.Z < 0)
             {
-                localPos.Z += Constants.CHUNK_SIZE;
+                localPos.Z += GameConstants.CHUNK_SIZE;
                 chunkPos = new ChunkPos(chunkPos.X, chunkPos.Z - 1);
                 chunk = mChunkManager.GetChunk(chunkPos);
                 if (chunk == null) return BlockIDs.Air;
             }
-            if (localPos.X >= Constants.CHUNK_SIZE)
+            if (localPos.X >= GameConstants.CHUNK_SIZE)
             {
-                localPos.X -= Constants.CHUNK_SIZE;
+                localPos.X -= GameConstants.CHUNK_SIZE;
                 chunkPos = new ChunkPos(chunkPos.X + 1, chunkPos.Z);
                 chunk = mChunkManager.GetChunk(chunkPos);
                 if (chunk == null) return BlockIDs.Air;
             }
-            if (localPos.Z >= Constants.CHUNK_SIZE)
+            if (localPos.Z >= GameConstants.CHUNK_SIZE)
             {
-                localPos.Z -= Constants.CHUNK_SIZE;
+                localPos.Z -= GameConstants.CHUNK_SIZE;
                 chunkPos = new ChunkPos(chunkPos.X, chunkPos.Z + 1);
                 chunk = mChunkManager.GetChunk(chunkPos);
                 if (chunk == null) return BlockIDs.Air;

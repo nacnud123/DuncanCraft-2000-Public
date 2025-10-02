@@ -87,14 +87,14 @@ namespace VoxelGame.PlayerScripts
 
         private bool isBlockSolid(Vector3i worldPos, ChunkManager chunkManager)
         {
-            if (worldPos.Y < 0 || worldPos.Y >= Constants.CHUNK_HEIGHT)
+            if (worldPos.Y < 0 || worldPos.Y >= GameConstants.CHUNK_HEIGHT)
             {
                 return worldPos.Y < 0;
             }
 
             ChunkPos chunkPos = new ChunkPos(
-                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
+                (int)Math.Floor(worldPos.X / (float)GameConstants.CHUNK_SIZE),
+                (int)Math.Floor(worldPos.Z / (float)GameConstants.CHUNK_SIZE)
             );
 
             Chunk chunk = chunkManager.GetChunk(chunkPos);
@@ -105,9 +105,9 @@ namespace VoxelGame.PlayerScripts
             }
 
             Vector3i localPos = new Vector3i(
-                worldPos.X - chunkPos.X * Constants.CHUNK_SIZE,
+                worldPos.X - chunkPos.X * GameConstants.CHUNK_SIZE,
                 worldPos.Y,
-                worldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
+                worldPos.Z - chunkPos.Z * GameConstants.CHUNK_SIZE
             );
 
             if (chunk.IsInBounds(localPos))

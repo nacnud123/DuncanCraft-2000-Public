@@ -16,6 +16,14 @@ namespace VoxelGame.Blocks
         Glass
     }
 
+    public enum BlockRenderingType
+    {
+        Cube,
+        Half,
+        Cross,
+        Torch
+    }
+
     public interface IBlock
     {
         /// <summary>
@@ -77,5 +85,8 @@ namespace VoxelGame.Blocks
         /// How much this block reduces light passing through it (0-15, where 0 = transparent, 15 = completely opaque)
         /// </summary>
         public byte LightOpacity { get; }
+
+        public BlockRenderingType RenderingType { get => BlockRenderingType.Cube; }
+        public bool HasCollision { get => true; }
     }
 }

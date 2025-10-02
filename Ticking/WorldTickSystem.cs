@@ -11,10 +11,10 @@ namespace VoxelGame.Ticking
 {
     public class WorldTickSystem : IDisposable
     {
-        private const int TARGET_TPS = 20;
-        private const double TICK_TIME = 1000.0 / TARGET_TPS;
-        private const int MAX_CHUNK_UPDATES_PER_TICK = 32;
-        private const int MAX_LIGHTING_UPDATES_PER_TICK = 32;
+        
+        private const double TICK_TIME = 1000.0 / GameConstants.TARGET_TPS;
+        private const int MAX_CHUNK_UPDATES_PER_TICK = 128;
+        private const int MAX_LIGHTING_UPDATES_PER_TICK = 128;
         private const int RANDOM_TICKS_PER_CHUNK = 3;
 
         private readonly ChunkManager _mChunkManager;
@@ -109,9 +109,16 @@ namespace VoxelGame.Ticking
                 }
                 else
                 {
-                    // Sleep for a short time to avoid busy waiting
-                    int sleepTime = Math.Max(1, (int)(nextTickTime - currentTime));
-                    Thread.Sleep(Math.Min(sleepTime, 10));
+                    // Sleep for a very short time to reduce input lag
+                    int sleepTime = Math.Max(0, (int)(nextTickTime - currentTime));
+                    if (sleepTime > 1)
+                    {
+                        Thread.Sleep(Math.Min(sleepTime, 5));
+                    }
+                    else if (sleepTime > 0)
+                    {
+                        Thread.Yield(); // Give up time slice but don't sleep for long periods
+                    }
                 }
             }
         }
@@ -229,9 +236,9 @@ namespace VoxelGame.Ticking
             {
                 for (int i = 0; i < RANDOM_TICKS_PER_CHUNK; i++)
                 {
-                    int x = _mRand.Next(0, Constants.CHUNK_SIZE);
-                    int z = _mRand.Next(0, Constants.CHUNK_SIZE);
-                    int y = _mRand.Next(0, Constants.CHUNK_HEIGHT);
+                    int x = _mRand.Next(0, GameConstants.CHUNK_SIZE);
+                    int z = _mRand.Next(0, GameConstants.CHUNK_SIZE);
+                    int y = _mRand.Next(0, GameConstants.CHUNK_HEIGHT);
 
                     byte blockType = chunk.Voxels[x, y, z];
                     if (blockType != BlockIDs.Air)
@@ -240,9 +247,9 @@ namespace VoxelGame.Ticking
                         if (block is IRandomTickable randomTickable)
                         {
                             Vector3i worldPos = new Vector3i(
-                                chunk.Position.X * Constants.CHUNK_SIZE + x,
+                                chunk.Position.X * GameConstants.CHUNK_SIZE + x,
                                 y,
-                                chunk.Position.Z * Constants.CHUNK_SIZE + z
+                                chunk.Position.Z * GameConstants.CHUNK_SIZE + z
                             );
 
                             randomTickable.OnRandomTick(worldPos, this, _mChunkManager);
@@ -289,23 +296,23 @@ namespace VoxelGame.Ticking
         private void applyBlockUpdate(BlockUpdate update)
         {
             ChunkPos chunkPos = new ChunkPos(
-                (int)Math.Floor(update.WorldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(update.WorldPos.Z / (float)Constants.CHUNK_SIZE)
+                (int)Math.Floor(update.WorldPos.X / (float)GameConstants.CHUNK_SIZE),
+                (int)Math.Floor(update.WorldPos.Z / (float)GameConstants.CHUNK_SIZE)
             );
 
             if (_mChunkManager._Chunks.TryGetValue(chunkPos, out var chunk))
             {
                 Vector3i localPos = new Vector3i(
-                    update.WorldPos.X - chunkPos.X * Constants.CHUNK_SIZE,
+                    update.WorldPos.X - chunkPos.X * GameConstants.CHUNK_SIZE,
                     update.WorldPos.Y,
-                    update.WorldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
+                    update.WorldPos.Z - chunkPos.Z * GameConstants.CHUNK_SIZE
                 );
 
                 if (localPos.X < 0) 
-                    localPos.X += Constants.CHUNK_SIZE;
+                    localPos.X += GameConstants.CHUNK_SIZE;
 
                 if (localPos.Z < 0) 
-                    localPos.Z += Constants.CHUNK_SIZE;
+                    localPos.Z += GameConstants.CHUNK_SIZE;
 
                 if (chunk.IsInBounds(localPos))
                 {
@@ -350,8 +357,7 @@ namespace VoxelGame.Ticking
 
                     if (chunks.Count > 0)
                     {
-                        var lightingEngine = new LightingEngine(_mChunkManager);
-                        lightingEngine.CalcMultiChunkLighting(chunks);
+                        _mChunkManager.LightingEngine.CalcMultiChunkLighting(chunks);
 
                         foreach (var chunkPos in affectedChunks)
                         {
@@ -374,7 +380,7 @@ namespace VoxelGame.Ticking
                         {
                             for (int dz = -1; dz <= 1; dz++)
                             {
-                                if (dx == 0 && dz == 0) 
+                                if (dx == 0 && dz == 0)
                                     continue;
 
                                 var neighborPos = new ChunkPos(update.ChunkPos.X + dx, update.ChunkPos.Z + dz);
@@ -385,8 +391,7 @@ namespace VoxelGame.Ticking
                             }
                         }
 
-                        var lightingEngine = new LightingEngine(_mChunkManager);
-                        lightingEngine.CalcMultiChunkLighting(neighborChunks);
+                        _mChunkManager.LightingEngine.CalcMultiChunkLighting(neighborChunks);
                     }
                     break;
 
@@ -405,8 +410,7 @@ namespace VoxelGame.Ticking
 
                         if (batchChunks.Count > 0)
                         {
-                            var lightingEngine = new LightingEngine(_mChunkManager);
-                            lightingEngine.CalcMultiChunkLighting(batchChunks);
+                            _mChunkManager.LightingEngine.CalcMultiChunkLighting(batchChunks);
                         }
                     }
                     break;
@@ -430,29 +434,29 @@ namespace VoxelGame.Ticking
 
         private List<ChunkPos> getAffectedChunks(Vector3i worldPos)
         {
-            var chunks = new HashSet<ChunkPos>();
+            var chunks = new HashSet<ChunkPos>(8);
             const int lightRadius = 15;
 
             ChunkPos centerChunk = new ChunkPos(
-                (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
+                (int)Math.Floor(worldPos.X / (float)GameConstants.CHUNK_SIZE),
+                (int)Math.Floor(worldPos.Z / (float)GameConstants.CHUNK_SIZE)
             );
 
             chunks.Add(centerChunk);
 
             Vector3i localPos = new Vector3i(
-                worldPos.X - centerChunk.X * Constants.CHUNK_SIZE,
+                worldPos.X - centerChunk.X * GameConstants.CHUNK_SIZE,
                 worldPos.Y,
-                worldPos.Z - centerChunk.Z * Constants.CHUNK_SIZE
+                worldPos.Z - centerChunk.Z * GameConstants.CHUNK_SIZE
             );
 
             if (localPos.X <= lightRadius)
                 chunks.Add(new ChunkPos(centerChunk.X - 1, centerChunk.Z));
-            if (localPos.X >= Constants.CHUNK_SIZE - lightRadius)
+            if (localPos.X >= GameConstants.CHUNK_SIZE - lightRadius)
                 chunks.Add(new ChunkPos(centerChunk.X + 1, centerChunk.Z));
             if (localPos.Z <= lightRadius)
                 chunks.Add(new ChunkPos(centerChunk.X, centerChunk.Z - 1));
-            if (localPos.Z >= Constants.CHUNK_SIZE - lightRadius)
+            if (localPos.Z >= GameConstants.CHUNK_SIZE - lightRadius)
                 chunks.Add(new ChunkPos(centerChunk.X, centerChunk.Z + 1));
 
             return new List<ChunkPos>(chunks);
@@ -473,7 +477,7 @@ namespace VoxelGame.Ticking
             }
             AverageTickTime = sum / mRecentTickTimes.Count;
 
-            if (TickCount % TARGET_TPS == 0)
+            if (TickCount % GameConstants.TARGET_TPS == 0)
             {
                 CurrentTPS = (int)(1000.0 / AverageTickTime);
             }

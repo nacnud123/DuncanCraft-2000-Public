@@ -33,12 +33,12 @@ namespace VoxelGame.World
         {
             var treePositions = new List<Vector3i>();
             
-            for (int x = 0; x < Constants.CHUNK_SIZE; x += 4)
+            for (int x = 0; x < GameConstants.CHUNK_SIZE; x += 4)
             {
-                for (int z = 0; z < Constants.CHUNK_SIZE; z += 4)
+                for (int z = 0; z < GameConstants.CHUNK_SIZE; z += 4)
                 {
-                    int worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
-                    int worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
+                    int worldX = chunk.Position.X * GameConstants.CHUNK_SIZE + x;
+                    int worldZ = chunk.Position.Z * GameConstants.CHUNK_SIZE + z;
                     
                     float treeNoise = _mTreeNoise.GetNoise(worldX, worldZ);
                     
@@ -67,7 +67,7 @@ namespace VoxelGame.World
 
         private int getGroundLevel(Chunk chunk, int x, int z)
         {
-            for (int y = Constants.CHUNK_HEIGHT - 1; y >= 0; y--)
+            for (int y = GameConstants.CHUNK_HEIGHT - 1; y >= 0; y--)
             {
                 if (chunk.Voxels[x, y, z] != BlockIDs.Air)
                 {
@@ -80,7 +80,7 @@ namespace VoxelGame.World
 
         private bool isValidTreeLocation(Chunk chunk, int x, int groundY, int z)
         {
-            if (x < 2 || x >= Constants.CHUNK_SIZE - 2 || z < 2 || z >= Constants.CHUNK_SIZE - 2)
+            if (x < 2 || x >= GameConstants.CHUNK_SIZE - 2 || z < 2 || z >= GameConstants.CHUNK_SIZE - 2)
                 return false;
 
             byte groundBlock = chunk.Voxels[x, groundY, z];
@@ -88,12 +88,12 @@ namespace VoxelGame.World
                 return false;
 
             int maxTreeHeight = TREE_HEIGHT_MAX + CANOPY_RADIUS;
-            if (groundY + maxTreeHeight >= Constants.CHUNK_HEIGHT)
+            if (groundY + maxTreeHeight >= GameConstants.CHUNK_HEIGHT)
                 return false;
 
             for (int y = groundY + 1; y <= groundY + maxTreeHeight; y++)
             {
-                if (y < Constants.CHUNK_HEIGHT && chunk.Voxels[x, y, z] != BlockIDs.Air)
+                if (y < GameConstants.CHUNK_HEIGHT && chunk.Voxels[x, y, z] != BlockIDs.Air)
                     return false;
             }
 
@@ -130,7 +130,7 @@ namespace VoxelGame.World
             for (int i = 1; i <= height; i++)
             {
                 int currentY = y + i;
-                if (currentY < Constants.CHUNK_HEIGHT)
+                if (currentY < GameConstants.CHUNK_HEIGHT)
                 {
                     setBlock(chunk, x, currentY, z, BlockIDs.Log);
                 }
@@ -153,9 +153,9 @@ namespace VoxelGame.World
 
         private void setBlock(Chunk chunk, int x, int y, int z, byte blockType)
         {
-            if (x >= 0 && x < Constants.CHUNK_SIZE &&
-                y >= 0 && y < Constants.CHUNK_HEIGHT &&
-                z >= 0 && z < Constants.CHUNK_SIZE)
+            if (x >= 0 && x < GameConstants.CHUNK_SIZE &&
+                y >= 0 && y < GameConstants.CHUNK_HEIGHT &&
+                z >= 0 && z < GameConstants.CHUNK_SIZE)
             {
                 if (chunk.Voxels[x, y, z] == BlockIDs.Air)
                 {

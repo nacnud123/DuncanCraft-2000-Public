@@ -7,42 +7,37 @@ namespace VoxelGame.PlayerScripts
 {
     public class Player
     {
-        #region Movement constants
+        // Movement constants
         public const float MOVE_SPEED = 5f;
         public const float SPRINT_SPEED = 20f;
         public const float GRAVITY = 9.8f;
         public const float JUMP_FORCE = 5f;
         public const float MAX_STEP_HEIGHT = 0.6f;
-        #endregion
 
-        #region  Components
-        public Camera _Camera;
-        public InputManager _InputManager;
-        public ChunkManager _ChunkManager;
-        public TerrainModifier _TerrainModifier;
-        #endregion
-
-        #region  Physics state
-        private bool mIsOnGround;
-        private Vector3 mVelocity;
-        private Vector3 mPosition;
-
+        // Physics timing constants
         public const float MIN_DELTA_TIME = 1f / 120f;
         public const float MAX_DELTA_TIME = 1f / 30f;
         private const float FIXED_TIMESTEP = 1f / 60f;
 
-        private float mPhysicsAccumulator = 0f;
-        #endregion
+        // Components
+        public Camera _Camera;
+        public InputManager _InputManager;
+        public ChunkManager _ChunkManager;
+        public TerrainModifier _TerrainModifier;
 
-        #region  Player properties
+        // Physics state
+        private bool mIsOnGround;
+        private Vector3 mVelocity;
+        private Vector3 mPosition;
+        private float mPhysicsAccumulator = 0f;
+
+        // Player properties
         private readonly Vector3 mSize = new Vector3(.6f, 1.8f, .6f);
         private readonly Vector3 mSpawnPosition = new Vector3(5, 130, 5);
-        #endregion
 
-        #region Public properties
+        // Public properties
         public Vector3 Velocity { get => mVelocity; set => mVelocity = value; }
         public Vector3 Position { get => mPosition; set => mPosition = value; }
-        #endregion
 
         public Player(ChunkManager world, Vector2i screenSize)
         {
@@ -59,24 +54,36 @@ namespace VoxelGame.PlayerScripts
 
             while (mPhysicsAccumulator >= FIXED_TIMESTEP)
             {
-                updatePhysics(FIXED_TIMESTEP);
-
-                // In case the player like falls out of the world, reset their position
-                if (mPosition.Y < -10)
-                {
-                    mPosition = mSpawnPosition;
-                    mVelocity = Vector3.Zero;
-                }
-
-                Vector3 targetPosition = mPosition + mVelocity * FIXED_TIMESTEP;
-                moveWithCollision(targetPosition);
-
+                processPhysicsStep();
                 mPhysicsAccumulator -= FIXED_TIMESTEP;
             }
 
             updateCamera();
             updateChunkPosition();
+            resetHorizontalVelocity();
+        }
 
+        private void processPhysicsStep()
+        {
+            updatePhysics(FIXED_TIMESTEP);
+            
+            checkWorldBounds();
+            
+            Vector3 targetPosition = mPosition + mVelocity * FIXED_TIMESTEP;
+            moveWithCollision(targetPosition);
+        }
+
+        private void checkWorldBounds()
+        {
+            if (mPosition.Y < -10)
+            {
+                mPosition = mSpawnPosition;
+                mVelocity = Vector3.Zero;
+            }
+        }
+
+        private void resetHorizontalVelocity()
+        {
             mVelocity.X = mVelocity.Z = 0f;
         }
         private void updatePhysics(float deltaTime)
@@ -161,10 +168,20 @@ namespace VoxelGame.PlayerScripts
 
         private bool hasCollision(Vector3 pos)
         {
-            Vector3 halfSize = mSize * 0.5f;
-            Vector3 minWorld = pos - halfSize;
-            Vector3 maxWorld = pos + halfSize;
+            var bounds = calculatePlayerBounds(pos);
+            var blockBounds = calculateBlockBounds(bounds.min, bounds.max);
+            
+            return checkCollisionInBounds(blockBounds.min, blockBounds.max, bounds.min, bounds.max);
+        }
 
+        private (Vector3 min, Vector3 max) calculatePlayerBounds(Vector3 pos)
+        {
+            Vector3 halfSize = mSize * 0.5f;
+            return (pos - halfSize, pos + halfSize);
+        }
+
+        private (Vector3i min, Vector3i max) calculateBlockBounds(Vector3 minWorld, Vector3 maxWorld)
+        {
             Vector3i minBlock = new Vector3i(
                 (int)Math.Floor(minWorld.X),
                 (int)Math.Floor(minWorld.Y),
@@ -177,6 +194,11 @@ namespace VoxelGame.PlayerScripts
                 (int)Math.Floor(maxWorld.Z)
             );
 
+            return (minBlock, maxBlock);
+        }
+
+        private bool checkCollisionInBounds(Vector3i minBlock, Vector3i maxBlock, Vector3 minWorld, Vector3 maxWorld)
+        {
             for (int x = minBlock.X; x <= maxBlock.X; x++)
             {
                 for (int y = minBlock.Y; y <= maxBlock.Y; y++)
@@ -195,11 +217,12 @@ namespace VoxelGame.PlayerScripts
         {
             // Check world bounds
             if (worldY < 0) return true;
-            if (worldY >= Constants.CHUNK_HEIGHT) return false;
+            if (worldY >= GameConstants.CHUNK_HEIGHT) return false;
 
             // Get block from chunk
             byte blockType = getBlockAt(worldX, worldY, worldZ);
-            if (blockType == BlockIDs.Air || blockType == BlockIDs.YellowFlower || blockType == BlockIDs.Torch)
+            var block = BlockRegistry.GetBlock(blockType);
+            if (!block.HasCollision)
                 return false;
 
             // Calculate block bounds
@@ -215,17 +238,17 @@ namespace VoxelGame.PlayerScripts
         private byte getBlockAt(int worldX, int worldY, int worldZ)
         {
             ChunkPos chunkPos = new ChunkPos(
-                (int)Math.Floor(worldX / (float)Constants.CHUNK_SIZE),
-                (int)Math.Floor(worldZ / (float)Constants.CHUNK_SIZE)
+                (int)Math.Floor(worldX / (float)GameConstants.CHUNK_SIZE),
+                (int)Math.Floor(worldZ / (float)GameConstants.CHUNK_SIZE)
             );
 
             Chunk chunk = _ChunkManager.GetChunk(chunkPos);
             if (chunk == null) return BlockIDs.Air;
 
             Vector3i localPos = new Vector3i(
-                worldX - chunkPos.X * Constants.CHUNK_SIZE,
+                worldX - chunkPos.X * GameConstants.CHUNK_SIZE,
                 worldY,
-                worldZ - chunkPos.Z * Constants.CHUNK_SIZE
+                worldZ - chunkPos.Z * GameConstants.CHUNK_SIZE
             );
 
             return chunk.GetBlock(localPos);
@@ -243,8 +266,8 @@ namespace VoxelGame.PlayerScripts
 
         private void updateChunkPosition()
         {
-            VoxelGame.init.CurrentChunkPosition.X = (int)Math.Floor(mPosition.X / Constants.CHUNK_SIZE);
-            VoxelGame.init.CurrentChunkPosition.Y = (int)Math.Floor(mPosition.Z / Constants.CHUNK_SIZE);
+            VoxelGame.init.CurrentChunkPosition.X = (int)Math.Floor(mPosition.X / GameConstants.CHUNK_SIZE);
+            VoxelGame.init.CurrentChunkPosition.Y = (int)Math.Floor(mPosition.Z / GameConstants.CHUNK_SIZE);
         }
 
         public void Jump()

@@ -124,12 +124,12 @@ namespace VoxelGame.World
         {
             int[,] heightMap = genHeightMap(chunk);
 
-            for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+            for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
             {
-                for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
                 {
-                    var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
-                    var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
+                    var worldX = chunk.Position.X * GameConstants.CHUNK_SIZE + x;
+                    var worldZ = chunk.Position.Z * GameConstants.CHUNK_SIZE + z;
 
                     int terrainHeight = heightMap[x, z];
 
@@ -146,15 +146,15 @@ namespace VoxelGame.World
 
         private int[,] genHeightMap(Chunk chunk)
         {
-            int[,] heightMap = new int[Constants.CHUNK_SIZE, Constants.CHUNK_SIZE];
+            int[,] heightMap = new int[GameConstants.CHUNK_SIZE, GameConstants.CHUNK_SIZE];
 
-            for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+            for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
             {
-                for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
                 {
-                    var worldX = chunk.Position.X * Constants.CHUNK_SIZE + x;
-                    var worldZ = chunk.Position.Z * Constants.CHUNK_SIZE + z;
-                    
+                    var worldX = chunk.Position.X * GameConstants.CHUNK_SIZE + x;
+                    var worldZ = chunk.Position.Z * GameConstants.CHUNK_SIZE + z;
+
                     float height = 0f;
 
                     // Large scale
@@ -181,13 +181,12 @@ namespace VoxelGame.World
 
         private void genColumn(Chunk chunk, int x, int z, int worldX, int worldZ, int terrainHeight, BiomeType biome)
         {
-            for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
+            for (int y = 0; y < GameConstants.CHUNK_HEIGHT; y++)
             {
                 byte blockType = BlockIDs.Air;
 
                 if (y == 0)
                 {
-                    // Bedrock
                     blockType = BlockIDs.Bedrock;
                 }
                 else if (y <= terrainHeight)
@@ -264,6 +263,14 @@ namespace VoxelGame.World
 
         private byte genOres(int worldX, int y, int worldZ, byte defaultBlock)
         {
+            // Gravel
+            if (y >= 10 && y <= 80)
+            {
+                float gravelValue = _mCoalNoise.GetNoise(worldX * 1.2f, y * 0.8f, worldZ * 1.2f);
+                if (gravelValue > .90f)
+                    return BlockIDs.Gravel;
+            }
+
             // Diamond
             if (y >= DIAMOND_MIN_HEIGHT && y <= DIAMOND_MAX_HEIGHT)
             {

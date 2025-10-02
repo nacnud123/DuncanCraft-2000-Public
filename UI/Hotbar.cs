@@ -24,14 +24,14 @@ namespace VoxelGame.UI
         private IBlock?[] mHotbarBlocks = new IBlock?[HOTBAR_SLOTS];
 
         // Hotbar dimensions and positioning
-        private const float HOTBAR_WIDTH = 320f * Constants.UI_SCALE;
-        private const float HOTBAR_HEIGHT = 32f * Constants.UI_SCALE;
-        private const float SELECTOR_WIDTH = 32f * Constants.UI_SCALE;
-        private const float SELECTOR_HEIGHT = 32f * Constants.UI_SCALE;
-        private const float SLOT_WIDTH = 32f * Constants.UI_SCALE;
+        private const float HOTBAR_WIDTH = 320f * GameConstants.UI_SCALE;
+        private const float HOTBAR_HEIGHT = 32f * GameConstants.UI_SCALE;
+        private const float SELECTOR_WIDTH = 32f * GameConstants.UI_SCALE;
+        private const float SELECTOR_HEIGHT = 32f * GameConstants.UI_SCALE;
+        private const float SLOT_WIDTH = 32f * GameConstants.UI_SCALE;
         private const float SLOT_SPACING = 0f;
-        private const float ITEM_SIZE = 24f * Constants.UI_SCALE;
-        private const float ITEM_OFFSET = 4f * Constants.UI_SCALE;
+        private const float ITEM_SIZE = 24f * GameConstants.UI_SCALE;
+        private const float ITEM_OFFSET = 4f * GameConstants.UI_SCALE;
 
         public Hotbar(Texture blockAtlasTexture)
         {

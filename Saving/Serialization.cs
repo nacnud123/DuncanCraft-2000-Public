@@ -11,7 +11,7 @@ namespace VoxelGame.Saving
         
         public static string SaveLocation()
         {
-            string saveLoc = Constants.SAVE_LOCATION + "/" + s_WorldName + "/";
+            string saveLoc = GameConstants.SAVE_LOCATION + "/" + s_WorldName + "/";
 
             if (!Directory.Exists(saveLoc))
             {
@@ -27,7 +27,7 @@ namespace VoxelGame.Saving
         
         public static WorldSaveData? LoadWorldData(string worldName)
         {
-            string metaDataPath = Constants.SAVE_LOCATION + "/" + worldName + "/" + GetWorldDataFile();
+            string metaDataPath = GameConstants.SAVE_LOCATION + "/" + worldName + "/" + GetWorldDataFile();
 
             if (!File.Exists(metaDataPath))
                 return null;
@@ -41,7 +41,7 @@ namespace VoxelGame.Saving
 
         public static void SaveWorldMetadata(WorldSaveData saveData)
         {
-            string savePath = Constants.SAVE_LOCATION + "/" + s_WorldName + "/";
+            string savePath = GameConstants.SAVE_LOCATION + "/" + s_WorldName + "/";
 
             if (!Directory.Exists(savePath))
             {
@@ -90,10 +90,10 @@ namespace VoxelGame.Saving
         {
             var worlds = new List<WorldSaveData>();
             
-            if (!Directory.Exists(Constants.SAVE_LOCATION))
+            if (!Directory.Exists(GameConstants.SAVE_LOCATION))
                 return worlds;
 
-            var worldDirs = Directory.GetDirectories(Constants.SAVE_LOCATION);
+            var worldDirs = Directory.GetDirectories(GameConstants.SAVE_LOCATION);
             
             foreach (var dir in worldDirs)
             {
@@ -174,11 +174,11 @@ namespace VoxelGame.Saving
             }
 
             var temp = save.To3DArray();
-            for (int x = 0; x < Constants.CHUNK_SIZE; x++)
+            for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
             {
-                for (int y = 0; y < Constants.CHUNK_HEIGHT; y++)
+                for (int y = 0; y < GameConstants.CHUNK_HEIGHT; y++)
                 {
-                    for (int z = 0; z < Constants.CHUNK_SIZE; z++)
+                    for (int z = 0; z < GameConstants.CHUNK_SIZE; z++)
                     {
                         chunk.Voxels[x, y, z] = temp[x, y, z];
                     }

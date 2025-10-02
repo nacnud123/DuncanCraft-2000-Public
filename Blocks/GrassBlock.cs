@@ -15,7 +15,7 @@ namespace VoxelGame.Blocks
 
         public bool IsSolid => true;
 
-        public string Name => "Grass";
+        public string Name => "Grass Block";
 
         public TextureCoords InventoryCoords => SideTextureCoords;
         public bool GravityBlock => false;

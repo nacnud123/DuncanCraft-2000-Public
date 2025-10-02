@@ -15,9 +15,9 @@ namespace VoxelGame.Saving
 
         public Save(Chunk chunk)
         {
-            SizeX = Constants.CHUNK_SIZE;
-            SizeY = Constants.CHUNK_HEIGHT;
-            SizeZ = Constants.CHUNK_SIZE;
+            SizeX = GameConstants.CHUNK_SIZE;
+            SizeY = GameConstants.CHUNK_HEIGHT;
+            SizeZ = GameConstants.CHUNK_SIZE;
             FlatBlocks = new byte[SizeX * SizeY * SizeZ];
 
             for (int x = 0; x < SizeX; x++)

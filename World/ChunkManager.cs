@@ -6,42 +6,50 @@ using VoxelGame.Saving;
 using VoxelGame.Utils;
 using VoxelGame.World;
 using VoxelGame.Ticking;
+using VoxelGame.Lighting;
 
 public class ChunkManager : IDisposable
 {
     public readonly ConcurrentDictionary<ChunkPos, Chunk> _Chunks = new();
 
+    // Mesh generation system
     private readonly Channel<ChunkPos> _mMeshGenerationChannel;
     private readonly ChannelReader<ChunkPos> _mMeshReader;
     private readonly ChannelWriter<ChunkPos> _mMeshWriter;
     private readonly HashSet<ChunkPos> _mQueuedMeshChunks = new();
     private readonly SemaphoreSlim _mMeshQueueLock = new SemaphoreSlim(1, 1);
 
+    // Task management
     private readonly CancellationTokenSource _mCancellationTokenSource = new();
     private Task _mMeshGenerationTask;
 
+    // Object pooling for performance
     private readonly ConcurrentQueue<List<Vertex>> _mVertexListPool = new();
     private readonly ConcurrentQueue<List<uint>> _mIndexListPool = new();
 
+    // Performance constants - optimized values
     private const int MAX_POOLED_OBJECTS = 100;
-    private const int MAX_CONCURRENT_MESH_OPERATIONS = 16;
-    private const int MAX_CHUNKS_LOADED_PER_FRAME = 32;
+    private const int MAX_CONCURRENT_MESH_OPERATIONS = 12;
+    private const int MAX_CHUNKS_LOADED_PER_FRAME = 4;
+    private const int TARGET_TPS = 20;
+    private const int MAX_CHUNKS_PROCESSED_PER_FRAME = 6;
 
-    public Frustum ChunkManagerFrustum;
+    private Frustum mFrustum = new Frustum();
     private WorldTickSystem mTickSystem;
+    private LightingEngine mLightingEngine;
+
+    private readonly object mMeshGenerationLock = new object();
+
+    public LightingEngine LightingEngine => mLightingEngine;
 
     public ChunkManager()
     {
-        ChunkManagerFrustum = new Frustum();
-
         mTickSystem = new WorldTickSystem(this);
 
-        for (int i = 0; i < 20; i++)
-        {
-            _mVertexListPool.Enqueue(new List<Vertex>());
-            _mIndexListPool.Enqueue(new List<uint>());
-        }
+        mLightingEngine = new LightingEngine(this);
 
+        initializeObjectPools();
+        
         var options = new BoundedChannelOptions(1000)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -55,8 +63,17 @@ public class ChunkManager : IDisposable
         _mMeshWriter = _mMeshGenerationChannel.Writer;
 
         _mMeshGenerationTask = processMeshGenerationAsync(_mCancellationTokenSource.Token);
-
+        
         mTickSystem.Start();
+    }
+
+    private void initializeObjectPools()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            _mVertexListPool.Enqueue(new List<Vertex>());
+            _mIndexListPool.Enqueue(new List<uint>());
+        }
     }
 
     public List<Vertex> GetVertexList()
@@ -102,8 +119,8 @@ public class ChunkManager : IDisposable
     public void UpdateChunks(Vector3 playerPos)
     {
         ChunkPos playerChunk = new ChunkPos(
-            (int)MathF.Floor(playerPos.X / Constants.CHUNK_SIZE),
-            (int)MathF.Floor(playerPos.Z / Constants.CHUNK_SIZE)
+            (int)MathF.Floor(playerPos.X / GameConstants.CHUNK_SIZE),
+            (int)MathF.Floor(playerPos.Z / GameConstants.CHUNK_SIZE)
         );
 
         VoxelGame.VoxelGame.init.CurrentChunkPosition = new Vector2i(playerChunk.X, playerChunk.Z);
@@ -111,7 +128,7 @@ public class ChunkManager : IDisposable
         var newChunks = new List<ChunkPos>();
         var loadedFromDiskChunks = new List<ChunkPos>();
 
-        var chunksToLoad = getDistanceSortedChunksPos(playerChunk, Constants.RENDER_DISTANCE);
+        var chunksToLoad = getDistanceSortedChunksPos(playerChunk, GameConstants.RENDER_DISTANCE);
 
         int chunksLoadedThisFrame = 0;
         foreach (var pos in chunksToLoad)
@@ -121,14 +138,40 @@ public class ChunkManager : IDisposable
                 _Chunks[pos] = new Chunk(pos, false);
                 newChunks.Add(pos);
 
-                if (!Serialization.Load(_Chunks[pos]))
+                // Try to load from disk synchronously first for immediate chunks, async for distant ones
+                bool loadedSync = false;
+                float distance = MathF.Sqrt((pos.X - playerChunk.X) * (pos.X - playerChunk.X) + (pos.Z - playerChunk.Z) * (pos.Z - playerChunk.Z));
+                
+                if (distance <= 2.0f) // Load nearby chunks synchronously for immediate availability
+                {
+                    if (Serialization.Load(_Chunks[pos]))
+                    {
+                        _Chunks[pos].TerrainGenerated = true;
+                        loadedFromDiskChunks.Add(pos);
+                        loadedSync = true;
+                    }
+                }
+
+                if (!loadedSync)
+                {
+                    // Load distant chunks asynchronously or generate terrain
+                    _ = Task.Run(() =>
+                    {
+                        if (Serialization.Load(_Chunks[pos]))
+                        {
+                            _Chunks[pos].TerrainGenerated = true;
+                            processLoadedChunk(pos);
+                        }
+                        else
+                        {
+                            mTickSystem.QueueTerrainGeneration(pos);
+                        }
+                    });
+                }
+
+                if (!loadedSync)
                 {
                     mTickSystem.QueueTerrainGeneration(pos);
-                }
-                else
-                {
-                    _Chunks[pos].TerrainGenerated = true;
-                    loadedFromDiskChunks.Add(pos);
                 }
 
                 chunksLoadedThisFrame++;
@@ -161,7 +204,7 @@ public class ChunkManager : IDisposable
             int dx = kvp.Key.X - playerChunk.X;
             int dz = kvp.Key.Z - playerChunk.Z;
 
-            if (Math.Abs(dx) > Constants.RENDER_DISTANCE + 1 || Math.Abs(dz) > Constants.RENDER_DISTANCE + 1)
+            if (Math.Abs(dx) > GameConstants.RENDER_DISTANCE + 1 || Math.Abs(dz) > GameConstants.RENDER_DISTANCE + 1)
             {
                 chunksToRemove.Add(kvp.Key);
             }
@@ -180,15 +223,17 @@ public class ChunkManager : IDisposable
                     _mQueuedMeshChunks.Remove(pos);
                 }
 
+                mLightingEngine?.RemoveChunkFromCache(pos);
+
                 chunk.Dispose();
             }
         }
+    }
 
-        // Force GC if we removed many chunks
-        if (chunksToRemove.Count > 5)
-        {
-            GC.Collect(0, GCCollectionMode.Optimized);
-        }
+    private void processLoadedChunk(ChunkPos chunkPos)
+    {
+        var loadedChunks = new List<ChunkPos> { chunkPos };
+        processLoadedChunks(loadedChunks);
     }
 
     private void processLoadedChunks(List<ChunkPos> loadedChunks)
@@ -340,36 +385,90 @@ public class ChunkManager : IDisposable
     public void UploadPendingMeshes()
     {
         int uploadsThisFrame = 0;
-        const int maxUploadsPerFrame = 3;
-
+        const int maxUploadsPerFrame = 2;
+        
+        // Get player position from current chunk position for distance-based prioritization
+        Vector3 playerPos = new Vector3(
+            VoxelGame.VoxelGame.init.CurrentChunkPosition.X * GameConstants.CHUNK_SIZE,
+            GameConstants.CHUNK_HEIGHT / 2f,
+            VoxelGame.VoxelGame.init.CurrentChunkPosition.Y * GameConstants.CHUNK_SIZE
+        );
+        
+        // Create priority list of chunks to upload based on distance
+        var chunksToUpload = new List<(Chunk chunk, float distance)>();
+        
         foreach (var chunk in _Chunks.Values)
         {
-            if (chunk.MeshGenerated && !chunk.MeshUploaded && chunk.TerrainGenerated)
+            if (chunk.MeshGenerated && !chunk.MeshUploaded && chunk.TerrainGenerated && chunk.IsMeshReadyForUpload())
             {
-                if (chunk.IsMeshReadyForUpload())
-                {
-                    chunk.UploadMesh(this);
-                    uploadsThisFrame++;
-
-                    if (uploadsThisFrame >= maxUploadsPerFrame)
-                        break;
-                }
+                Vector3 chunkCenter = new Vector3(
+                    chunk.Position.X * GameConstants.CHUNK_SIZE + GameConstants.CHUNK_SIZE / 2f,
+                    GameConstants.CHUNK_HEIGHT / 2f,
+                    chunk.Position.Z * GameConstants.CHUNK_SIZE + GameConstants.CHUNK_SIZE / 2f
+                );
+                
+                float distance = (playerPos - chunkCenter).LengthSquared;
+                chunksToUpload.Add((chunk, distance));
             }
+        }
+        
+        // Sort by distance (closest first)
+        chunksToUpload.Sort((a, b) => a.distance.CompareTo(b.distance));
+        
+        // Upload closest chunks first
+        foreach (var (chunk, _) in chunksToUpload)
+        {
+            chunk.UploadMesh(this);
+            uploadsThisFrame++;
+            
+            if (uploadsThisFrame >= maxUploadsPerFrame)
+                break;
         }
     }
 
     public void RenderChunks(Vector3 cameraPosition, Vector3 cameraFront, Vector3 cameraUp, float fov, float aspectRatio)
     {
-        float nearPlane = 0.1f;
-        float farPlane = 1000f;
-        ChunkManagerFrustum.UpdateFromCamera(cameraPosition, cameraFront, cameraUp, fov, aspectRatio, nearPlane, farPlane);
-
+        Matrix4 view = Matrix4.LookAt(cameraPosition, cameraPosition + cameraFront, cameraUp);
+        Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(fov), aspectRatio, 0.1f, 1000f);
+        Matrix4 viewProjection = view * projection;
+        mFrustum.Update(viewProjection);
+        
+        // Get player chunk position for distance-based culling
+        ChunkPos playerChunk = new ChunkPos(
+            (int)MathF.Floor(cameraPosition.X / GameConstants.CHUNK_SIZE),
+            (int)MathF.Floor(cameraPosition.Z / GameConstants.CHUNK_SIZE)
+        );
+        
+        // Create sorted list of chunks by distance for optimized rendering order
+        var visibleChunks = new List<(Chunk chunk, float distance)>();
+        
         foreach (var kvp in _Chunks)
         {
-            if (kvp.Value.MeshUploaded && kvp.Value.TerrainGenerated && kvp.Value.IsInFrustum(ChunkManagerFrustum))
-            {
-                kvp.Value.Render();
-            }
+            var chunk = kvp.Value;
+            if (!chunk.MeshUploaded || !chunk.TerrainGenerated)
+                continue;
+            
+            // Distance check first (cheaper than frustum culling)
+            int dx = kvp.Key.X - playerChunk.X;
+            int dz = kvp.Key.Z - playerChunk.Z;
+            float distanceSquared = dx * dx + dz * dz;
+            
+            if (distanceSquared > GameConstants.RENDER_DISTANCE * GameConstants.RENDER_DISTANCE)
+                continue;
+
+            if (!mFrustum.IsChunkVisible(kvp.Key))
+                continue;
+                
+            visibleChunks.Add((chunk, distanceSquared));
+        }
+        
+        // Sort by distance (front to back for early z-reject)
+        visibleChunks.Sort((a, b) => a.distance.CompareTo(b.distance));
+        
+        // Render visible chunks in order
+        foreach (var (chunk, _) in visibleChunks)
+        {
+            chunk.Render();
         }
     }
 
@@ -399,7 +498,7 @@ public class ChunkManager : IDisposable
         chunk.Modified = true;
 
         // If placing a block, check if there's grass below that should turn to dirt. Only certain blocks should turn grass into dirt.
-        if (!isBreaking && newBlockType != BlockIDs.Air && newBlockType != BlockIDs.Torch && newBlockType != BlockIDs.YellowFlower) // TODO: Make less strict / hard coded
+        if (!isBreaking && newBlockType != BlockIDs.Air && newBlockType != BlockIDs.Torch && newBlockType != BlockIDs.YellowFlower && newBlockType != BlockIDs.GrassTuff && newBlockType != BlockIDs.BrownMushroom && newBlockType != BlockIDs.RedMushroom) // TODO: Make less strict / hard coded
         {
             Vector3i posBelow = new Vector3i(worldPos.X, worldPos.Y - 1, worldPos.Z);
             var (chunkBelow, localPosBelow) = getChunkAndLocalPos(posBelow);
@@ -414,7 +513,7 @@ public class ChunkManager : IDisposable
 
                     if (chunkBelow != chunk)
                     {
-                        immediateChunkMesh(WorldPositionHelper.WorldToChunkPos(posBelow));
+                        _ = queueMeshGenAsync(WorldPositionHelper.WorldToChunkPos(posBelow));
                     }
                 }
             }
@@ -430,37 +529,37 @@ public class ChunkManager : IDisposable
         // Apply fast lighting update
         var affectedChunks = fastLightingUpdate(worldPos, oldBlock, newBlockType);
 
-        foreach (var affectedChunkPos in affectedChunks)
+        // Queue immediate mesh updates asynchronously instead of blocking
+        _ = Task.Run(() =>
         {
-            immediateChunkMesh(affectedChunkPos);
-        }
-
-        // Queue lighting update for the tick system to handle properly
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(16);
-            mTickSystem.QueueLightingUpdate(new LightingUpdate
+            foreach (var affectedChunkPos in affectedChunks)
             {
-                Type = LightingUpdateType.BlockChanged,
-                WorldPos = worldPos,
-                ChunkPos = WorldPositionHelper.WorldToChunkPos(worldPos)
-            });
+                asyncChunkMesh(affectedChunkPos);
+            }
+        });
+
+        // Queue proper lighting update for the tick system
+        mTickSystem.QueueLightingUpdate(new LightingUpdate
+        {
+            Type = LightingUpdateType.BlockChanged,
+            WorldPos = worldPos,
+            ChunkPos = WorldPositionHelper.WorldToChunkPos(worldPos)
         });
 
         return true;
     }
     
-    // Immediately regenerates a chunk's mesh on the main thread.
-    private void immediateChunkMesh(ChunkPos chunkPos)
+    // Asynchronously regenerates a chunk's mesh without blocking the main thread.
+    private void asyncChunkMesh(ChunkPos chunkPos)
     {
         if (_Chunks.TryGetValue(chunkPos, out var chunk))
         {
-            // Force immediate mesh regeneration
+            // Queue for async mesh regeneration
             chunk.MeshGenerated = false;
             
             if (chunk.TerrainGenerated)
             {
-                chunk.GenMesh(this);
+                _ = queueMeshGenAsync(chunkPos);
             }
         }
     }
@@ -587,7 +686,7 @@ public class ChunkManager : IDisposable
         foreach (var dir in directions)
         {
             Vector3i neighborPos = worldPos + dir;
-            if (neighborPos.Y < 0 || neighborPos.Y >= Constants.CHUNK_HEIGHT) 
+            if (neighborPos.Y < 0 || neighborPos.Y >= GameConstants.CHUNK_HEIGHT) 
                 continue;
 
             var (neighborChunk, neighborLocal) = getChunkAndLocalPos(neighborPos);
@@ -629,7 +728,7 @@ public class ChunkManager : IDisposable
         {
             Vector3i neighborPos = currentPos + dir;
 
-            if (neighborPos.Y < 0 || neighborPos.Y >= Constants.CHUNK_HEIGHT) 
+            if (neighborPos.Y < 0 || neighborPos.Y >= GameConstants.CHUNK_HEIGHT) 
                 continue;
 
             if (processed.Contains(neighborPos)) 
@@ -706,7 +805,7 @@ public class ChunkManager : IDisposable
             foreach (var dir in directions)
             {
                 Vector3i neighborPos = currentPos + dir;
-                if (neighborPos.Y < 0 || neighborPos.Y >= Constants.CHUNK_HEIGHT) 
+                if (neighborPos.Y < 0 || neighborPos.Y >= GameConstants.CHUNK_HEIGHT) 
                     continue;
 
                 if (processed.Contains(neighborPos)) 
@@ -750,7 +849,7 @@ public class ChunkManager : IDisposable
                 for (int dz = -maxRadius; dz <= maxRadius; dz++)
                 {
                     Vector3i checkPos = worldPos + new Vector3i(dx, dy, dz);
-                    if (checkPos.Y < 0 || checkPos.Y >= Constants.CHUNK_HEIGHT) 
+                    if (checkPos.Y < 0 || checkPos.Y >= GameConstants.CHUNK_HEIGHT) 
                         continue;
                     
                     var (chunk, localPos) = getChunkAndLocalPos(checkPos);
@@ -817,7 +916,7 @@ public class ChunkManager : IDisposable
                 foreach (var dir in directions)
                 {
                     Vector3i neighborPos = currentPos + dir;
-                    if (neighborPos.Y < 0 || neighborPos.Y >= Constants.CHUNK_HEIGHT) 
+                    if (neighborPos.Y < 0 || neighborPos.Y >= GameConstants.CHUNK_HEIGHT) 
                         continue;
 
                     if (propagationProcessed.Contains(neighborPos)) 
@@ -868,25 +967,25 @@ public class ChunkManager : IDisposable
     private (Chunk chunk, Vector3i localPos) getChunkAndLocalPos(Vector3i worldPos)
     {
         ChunkPos chunkPos = new ChunkPos(
-            (int)Math.Floor(worldPos.X / (float)Constants.CHUNK_SIZE),
-            (int)Math.Floor(worldPos.Z / (float)Constants.CHUNK_SIZE)
+            (int)Math.Floor(worldPos.X / (float)GameConstants.CHUNK_SIZE),
+            (int)Math.Floor(worldPos.Z / (float)GameConstants.CHUNK_SIZE)
         );
 
         if (!_Chunks.TryGetValue(chunkPos, out var chunk))
             return (null, Vector3i.Zero);
 
         Vector3i localPos = new Vector3i(
-            worldPos.X - chunkPos.X * Constants.CHUNK_SIZE,
+            worldPos.X - chunkPos.X * GameConstants.CHUNK_SIZE,
             worldPos.Y,
-            worldPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
+            worldPos.Z - chunkPos.Z * GameConstants.CHUNK_SIZE
         );
 
         // Handle negative coordinates
         if (localPos.X < 0) 
-            localPos.X += Constants.CHUNK_SIZE;
+            localPos.X += GameConstants.CHUNK_SIZE;
 
         if (localPos.Z < 0) 
-            localPos.Z += Constants.CHUNK_SIZE;
+            localPos.Z += GameConstants.CHUNK_SIZE;
 
         return (chunk, localPos);
     }
@@ -895,6 +994,8 @@ public class ChunkManager : IDisposable
     {
         return $"TPS: {mTickSystem.CurrentTPS}/{TARGET_TPS} | Avg: {mTickSystem.AverageTickTime:F2}ms | Ticks: {mTickSystem.TickCount}";
     }
+
+    public long GetCurrentTick() => mTickSystem.TickCount;
 
     // Gets diagnostic information about the async mesh generation system
     public string GetMeshGenerationStats()
@@ -917,8 +1018,6 @@ public class ChunkManager : IDisposable
         
         return $"Mesh Gen: Queued={queuedCount}, Channel={channelCount}, Task={taskStatus}";
     }
-
-    private const int TARGET_TPS = 20;
 
     #region Spiral Chunk Loading
     private List<ChunkPos> getDistanceSortedChunksPos(ChunkPos centerChunk, int renderDistance)
@@ -960,7 +1059,6 @@ public class ChunkManager : IDisposable
         mTickSystem?.Dispose();
 
         _mCancellationTokenSource.Cancel();
-
         _mMeshWriter.Complete();
 
         try
@@ -986,7 +1084,19 @@ public class ChunkManager : IDisposable
             Console.WriteLine($"Error waiting for mesh generation task: {ex.Message}");
         }
 
-        // Dispose chunks
+        mLightingEngine?.ClearCache();
+
+        try
+        {
+            _mMeshQueueLock.Wait(100);
+            _mQueuedMeshChunks.Clear();
+        }
+        finally
+        {
+            _mMeshQueueLock.Release();
+        }
+
+        // Dispose all chunks
         var chunksToDispose = _Chunks.Values.ToList();
         foreach (var chunk in chunksToDispose)
         {
@@ -1002,23 +1112,15 @@ public class ChunkManager : IDisposable
 
         _Chunks.Clear();
 
-        try
-        {
-            _mMeshQueueLock.Wait(100);
-            _mQueuedMeshChunks.Clear();
-        }
-        finally
-        {
-            _mMeshQueueLock.Release();
-        }
-
         while (_mVertexListPool.TryDequeue(out var vertexList))
         {
             vertexList.Clear();
+            vertexList.TrimExcess(); // Release internal array capacity
         }
         while (_mIndexListPool.TryDequeue(out var indexList))
         {
             indexList.Clear();
+            indexList.TrimExcess(); // Release internal array capacity
         }
 
         try
@@ -1031,8 +1133,8 @@ public class ChunkManager : IDisposable
             Console.WriteLine($"Error disposing resources: {ex.Message}");
         }
 
-        GC.Collect();
+        GC.Collect(2, GCCollectionMode.Aggressive, true, true);
         GC.WaitForPendingFinalizers();
-        GC.Collect();
+        GC.Collect(2, GCCollectionMode.Aggressive, true, true);
     }
 }

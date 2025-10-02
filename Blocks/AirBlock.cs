@@ -24,5 +24,6 @@ namespace VoxelGame.Blocks
         public bool Transparent => true;
         public byte LightLevel => 0;
         public byte LightOpacity => 0;
+        public bool HasCollision => false;
     }
 }

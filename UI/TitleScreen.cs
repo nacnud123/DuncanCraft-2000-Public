@@ -161,7 +161,7 @@ namespace VoxelGame.UI
             // Version info
             ImGui.SetCursorPos(new Vector2(10, windowSize.Y - 50));
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.6f, 1.0f));
-            ImGui.Text("Version 1.3.0B");
+            ImGui.Text("Version 1.5.0B");
             ImGui.SetCursorPos(new Vector2(10, windowSize.Y - 30));
             ImGui.Text("Press DEL to delete currently selected world");
             ImGui.PopStyleColor();
@@ -173,7 +173,7 @@ namespace VoxelGame.UI
         {
             try
             {
-                string worldPath = Path.Combine(Constants.SAVE_LOCATION, worldName);
+                string worldPath = Path.Combine(GameConstants.SAVE_LOCATION, worldName);
                 if (Directory.Exists(worldPath))
                 {
                     Directory.Delete(worldPath, true);

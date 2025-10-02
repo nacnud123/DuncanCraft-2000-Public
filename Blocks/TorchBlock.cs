@@ -20,5 +20,7 @@ namespace VoxelGame.Blocks
         public bool Transparent => true;
         public byte LightLevel => 14;
         public byte LightOpacity => 0;
+        public BlockRenderingType RenderingType => BlockRenderingType.Torch;
+        public bool HasCollision => false;
     }
 }

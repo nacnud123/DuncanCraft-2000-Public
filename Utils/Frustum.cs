@@ -1,121 +1,117 @@
-﻿// Frustum culling class, I think it works. Again not 100% of what it is doing, had to look up an algorithm. | DA | 8/1/25
+// Frustum culling. Again not 100% of what it is doing, had to look up an algorithm. Not even 100% if it is working. | DA | 10/2/25
 using OpenTK.Mathematics;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace VoxelGame.Utils
 {
+    public struct Plane
+    {
+        public Vector3 Normal;
+        public float Distance;
+
+        public Plane(Vector3 normal, float distance)
+        {
+            Normal = normal;
+            Distance = distance;
+        }
+
+        public float DistanceToPoint(Vector3 point)
+        {
+            return Vector3.Dot(Normal, point) + Distance;
+        }
+    }
+
     public class Frustum
     {
         private Plane[] mPlanes = new Plane[6];
 
-        public void UpdateFromCamera(Vector3 cameraPosition, Vector3 cameraFront, Vector3 cameraUp, float fov, float aspectRatio, float near, float far)
+        public void Update(Matrix4 viewProjectionMatrix)
         {
-            Matrix4 view = Matrix4.LookAt(cameraPosition, cameraPosition + cameraFront, cameraUp);
-            Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(fov), aspectRatio, near, far);
-            Matrix4 viewProjection = view * projection;
-            getPlanes(viewProjection);
-        }
-
-        private void getPlanes(Matrix4 m)
-        {
+            // Extract frustum planes from view-projection matrix
             // Left plane
             mPlanes[0] = new Plane(
-                m.M14 + m.M11,
-                m.M24 + m.M21,
-                m.M34 + m.M31,
-                m.M44 + m.M41
-            );
+                new Vector3(viewProjectionMatrix.M14 + viewProjectionMatrix.M11,
+                           viewProjectionMatrix.M24 + viewProjectionMatrix.M21,
+                           viewProjectionMatrix.M34 + viewProjectionMatrix.M31),
+                viewProjectionMatrix.M44 + viewProjectionMatrix.M41);
 
             // Right plane
             mPlanes[1] = new Plane(
-                m.M14 - m.M11,
-                m.M24 - m.M21,
-                m.M34 - m.M31,
-                m.M44 - m.M41
-            );
+                new Vector3(viewProjectionMatrix.M14 - viewProjectionMatrix.M11,
+                           viewProjectionMatrix.M24 - viewProjectionMatrix.M21,
+                           viewProjectionMatrix.M34 - viewProjectionMatrix.M31),
+                viewProjectionMatrix.M44 - viewProjectionMatrix.M41);
 
             // Bottom plane
             mPlanes[2] = new Plane(
-                m.M14 + m.M12,
-                m.M24 + m.M22,
-                m.M34 + m.M32,
-                m.M44 + m.M42
-            );
+                new Vector3(viewProjectionMatrix.M14 + viewProjectionMatrix.M12,
+                           viewProjectionMatrix.M24 + viewProjectionMatrix.M22,
+                           viewProjectionMatrix.M34 + viewProjectionMatrix.M32),
+                viewProjectionMatrix.M44 + viewProjectionMatrix.M42);
 
             // Top plane
             mPlanes[3] = new Plane(
-                m.M14 - m.M12,
-                m.M24 - m.M22,
-                m.M34 - m.M32,
-                m.M44 - m.M42
-            );
+                new Vector3(viewProjectionMatrix.M14 - viewProjectionMatrix.M12,
+                           viewProjectionMatrix.M24 - viewProjectionMatrix.M22,
+                           viewProjectionMatrix.M34 - viewProjectionMatrix.M32),
+                viewProjectionMatrix.M44 - viewProjectionMatrix.M42);
 
             // Near plane
             mPlanes[4] = new Plane(
-                m.M14 + m.M13,
-                m.M24 + m.M23,
-                m.M34 + m.M33,
-                m.M44 + m.M43
-            );
+                new Vector3(viewProjectionMatrix.M14 + viewProjectionMatrix.M13,
+                           viewProjectionMatrix.M24 + viewProjectionMatrix.M23,
+                           viewProjectionMatrix.M34 + viewProjectionMatrix.M33),
+                viewProjectionMatrix.M44 + viewProjectionMatrix.M43);
 
             // Far plane
             mPlanes[5] = new Plane(
-                m.M14 - m.M13,
-                m.M24 - m.M23,
-                m.M34 - m.M33,
-                m.M44 - m.M43
-            );
+                new Vector3(viewProjectionMatrix.M14 - viewProjectionMatrix.M13,
+                           viewProjectionMatrix.M24 - viewProjectionMatrix.M23,
+                           viewProjectionMatrix.M34 - viewProjectionMatrix.M33),
+                viewProjectionMatrix.M44 - viewProjectionMatrix.M43);
 
-            // Normalize all planes
+            // Normalize planes
             for (int i = 0; i < 6; i++)
             {
-                mPlanes[i].Normalize();
+                float length = mPlanes[i].Normal.Length;
+                if (length > 0)
+                {
+                    mPlanes[i].Normal /= length;
+                    mPlanes[i].Distance /= length;
+                }
             }
         }
 
-        public bool IsBoxInFrustum(Vector3 min, Vector3 max)
+        public bool IsChunkVisible(Vector3 chunkMin, Vector3 chunkMax)
         {
             for (int i = 0; i < 6; i++)
             {
-                Plane plane = mPlanes[i];
-                Vector3 p = min;
+                Vector3 positiveVertex = new Vector3(
+                    mPlanes[i].Normal.X >= 0 ? chunkMax.X : chunkMin.X,
+                    mPlanes[i].Normal.Y >= 0 ? chunkMax.Y : chunkMin.Y,
+                    mPlanes[i].Normal.Z >= 0 ? chunkMax.Z : chunkMin.Z
+                );
 
-                if (plane.Normal.X >= 0) p.X = max.X;
-                if (plane.Normal.Y >= 0) p.Y = max.Y;
-                if (plane.Normal.Z >= 0) p.Z = max.Z;
-
-                if (plane.Distance(p) < 0)
+                if (mPlanes[i].DistanceToPoint(positiveVertex) < 0)
                     return false;
             }
             return true;
         }
-    }
 
-    public class Plane
-    {
-        public Vector3 Normal;
-        public float D;
-
-        public Plane(float a, float b, float c, float d)
+        public bool IsChunkVisible(ChunkPos chunkPos)
         {
-            Normal = new Vector3(a, b, c);
-            D = d;
-        }
+            Vector3 chunkMin = new Vector3(
+                chunkPos.X * GameConstants.CHUNK_SIZE,
+                0,
+                chunkPos.Z * GameConstants.CHUNK_SIZE
+            );
+            
+            Vector3 chunkMax = new Vector3(
+                (chunkPos.X + 1) * GameConstants.CHUNK_SIZE,
+                GameConstants.CHUNK_HEIGHT,
+                (chunkPos.Z + 1) * GameConstants.CHUNK_SIZE
+            );
 
-        public void Normalize()
-        {
-            float length = Normal.Length;
-            Normal /= length;
-            D /= length;
-        }
-
-        public float Distance(Vector3 point)
-        {
-            return Vector3.Dot(Normal, point) + D;
+            return IsChunkVisible(chunkMin, chunkMax);
         }
     }
 }

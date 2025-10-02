@@ -37,20 +37,20 @@ namespace VoxelGame.Blocks
             foreach (Vector3i adjacentPos in adjacentPositions)
             {
                 ChunkPos chunkPos = new ChunkPos(
-                    (int)System.Math.Floor(adjacentPos.X / (float)Constants.CHUNK_SIZE),
-                    (int)System.Math.Floor(adjacentPos.Z / (float)Constants.CHUNK_SIZE)
+                    (int)System.Math.Floor(adjacentPos.X / (float)GameConstants.CHUNK_SIZE),
+                    (int)System.Math.Floor(adjacentPos.Z / (float)GameConstants.CHUNK_SIZE)
                 );
 
                 if (chunkManager._Chunks.TryGetValue(chunkPos, out var chunk))
                 {
                     Vector3i localPos = new Vector3i(
-                        adjacentPos.X - chunkPos.X * Constants.CHUNK_SIZE,
+                        adjacentPos.X - chunkPos.X * GameConstants.CHUNK_SIZE,
                         adjacentPos.Y,
-                        adjacentPos.Z - chunkPos.Z * Constants.CHUNK_SIZE
+                        adjacentPos.Z - chunkPos.Z * GameConstants.CHUNK_SIZE
                     );
 
-                    if (localPos.X < 0) localPos.X += Constants.CHUNK_SIZE;
-                    if (localPos.Z < 0) localPos.Z += Constants.CHUNK_SIZE;
+                    if (localPos.X < 0) localPos.X += GameConstants.CHUNK_SIZE;
+                    if (localPos.Z < 0) localPos.Z += GameConstants.CHUNK_SIZE;
 
                     if (chunk.IsInBounds(localPos))
                     {

@@ -45,7 +45,7 @@ namespace VoxelGame.Managers
             GL.Uniform3(lightDirLoc, new Vector3(0.0f, -1.0f, 0.0f));
             GL.Uniform3(viewPosLoc, cameraPosition);
             
-            float renderDistance = Constants.RENDER_DISTANCE * Constants.CHUNK_SIZE;
+            float renderDistance = GameConstants.RENDER_DISTANCE * GameConstants.CHUNK_SIZE;
             GL.Uniform1(fogStartLoc, renderDistance * 0.7f);
             GL.Uniform1(fogEndLoc, renderDistance);
             GL.Uniform3(fogColorLoc, new Vector3(0.6f, 0.8f, 1.0f));

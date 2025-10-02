@@ -1,14 +1,33 @@
-// This script helps with managing the state of the game, handling stuff like changing "scenes", the esc key, inv key, and some helper functions | DA | 8/25/25
+// This script helps with managing the state of the game, handling stuff like changing "scenes", the esc key, inv key, and some helper functions | DA | 10/2/25
+using VoxelGame.Utils;
+
 namespace VoxelGame.Managers
 {
     public class GameStateManager
     {
+
         public GameState CurrentState { get; private set; }
         public event Action<GameState, GameState> OnStateChanged;
 
         public GameStateManager()
         {
             CurrentState = GameState.TitleScreen;
+        }
+
+        public bool IsWorldLoading()
+        {
+            if (!IsInGame() || VoxelGame.init._ChunkManager == null)
+                return false;
+
+            return VoxelGame.init._ChunkManager.GetCurrentTick() < GameConstants.LOADING_TICKS_REQUIRED;
+        }
+
+        public bool IsWorldReady()
+        {
+            if (!IsInGame() || VoxelGame.init._ChunkManager == null)
+                return false;
+
+            return VoxelGame.init._ChunkManager.GetCurrentTick() >= GameConstants.LOADING_TICKS_REQUIRED;
         }
 
         public void ChangeState(GameState newState)
@@ -32,7 +51,8 @@ namespace VoxelGame.Managers
                     return true;
 
                 case GameState.InGame:
-                    game.PauseGame();
+                    if (IsWorldReady())
+                        game.PauseGame();
                     return true;
 
                 default:
@@ -42,7 +62,10 @@ namespace VoxelGame.Managers
 
         public bool HandleInventoryKey(VoxelGame game)
         {
-            if (CurrentState == GameState.Pause) 
+            if (IsWorldLoading())
+                return false;
+
+            if (CurrentState == GameState.Pause)
                 return false;
 
             if (CurrentState == GameState.Inventory)

@@ -2,11 +2,11 @@
 
 namespace VoxelGame.Blocks
 {
-    internal class YellowFlowerBlock : IBlock
+    public class GrassTuftBlock : IBlock
     {
-        public int ID => 14;
+        public int ID => 23;
 
-        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(4, 1);
+        public TextureCoords TopTextureCoords => UVHelper.FromTileCoords(5, 1);
 
         public TextureCoords BottomTextureCoords => TopTextureCoords;
 
@@ -14,7 +14,7 @@ namespace VoxelGame.Blocks
 
         public bool IsSolid => false;
 
-        public string Name => "Yellow Flower";
+        public string Name => "Grass";
 
         public TextureCoords InventoryCoords => TopTextureCoords;
 

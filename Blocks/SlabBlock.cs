@@ -21,5 +21,6 @@ namespace VoxelGame.Blocks
         public bool Transparent => false;
         public byte LightLevel => 0;
         public byte LightOpacity => 15;
+        public BlockRenderingType RenderingType => BlockRenderingType.Half;
     }
 }
